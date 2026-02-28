@@ -258,7 +258,8 @@ function PollFxMeters()
         -- Get track peak level
         local peakL = reaper.Track_GetPeakInfo(track, 0)
         local peakR = reaper.Track_GetPeakInfo(track, 1)
-        local peakDb = 20 * math.log10(math.max(peakL, peakR, 0.0000001))
+        local maxPeak = math.max(peakL, peakR, 0.0000001)
+        local peakDb = 20 * (math.log(maxPeak) / math.log(10))
         
         gateOpen = peakDb > threshDb
         gateLevel = math.max(0, math.min(1, (peakDb + 60) / 60))
