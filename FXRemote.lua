@@ -95,6 +95,20 @@ function ProcessCommands()
         end
       end
       
+      -- Handle set bypass: S,trackIdx,fxIdx,enabled (1=on, 0=off)
+      local sTrack, sFx, sEnabled = line:match("^S,(%d+),(%d+),(%d+)")
+      if sTrack then
+        sTrack = tonumber(sTrack)
+        sFx = tonumber(sFx)
+        sEnabled = tonumber(sEnabled) == 1
+        local track = GetTrackByIndex(sTrack)
+        if track then
+          reaper.TrackFX_SetEnabled(track, sFx, sEnabled)
+          reaper.ShowConsoleMsg(string.format("  FX Set: Track %d, FX %d -> %s\n", 
+            sTrack, sFx, sEnabled and "ON" or "OFF"))
+        end
+      end
+      
       -- Handle output EQ read: O,trackIdx (only FX 0 = ReaEQ)
       local oTrack = line:match("^O,(%d+)")
       if oTrack then

@@ -1308,6 +1308,8 @@ body {
 <div class="header">
   <div class="title">Live Mixer</div>
   <div class="header-controls">
+    <button class="header-btn" id="muteMonBtn" onclick="toggleMuteMonitors()" title="Mute All Monitors">🔇 MON</button>
+    <button class="header-btn" id="muteAllBtn" onclick="toggleMuteAll()" title="Mute All Outputs">🔇 ALL</button>
     <button class="header-btn fx-master" id="globalFxBtn" onclick="toggleGlobalFx()" title="Global FX On/Off">FX</button>
     <button class="header-btn reset-btn" onclick="openResetMenu()" title="Reset Options">↺</button>
   </div>
@@ -3141,6 +3143,37 @@ handleFxValues = function(data) {
 
 // Global FX state
 let globalFxBypassed = false;
+let monitorsMuted = false;
+let allOutputsMuted = false;
+
+function toggleMuteMonitors() {
+  monitorsMuted = !monitorsMuted;
+  const btn = document.getElementById('muteMonBtn');
+  btn.classList.toggle('active', monitorsMuted);
+  btn.style.background = monitorsMuted ? '#ff453a' : '#333';
+  btn.style.color = monitorsMuted ? '#fff' : '#aaa';
+  
+  // Mute all monitor output tracks
+  Object.values(monitorOutputTracks).forEach(t => {
+    wwr_req(`SET/TRACK/${t.idx}/MUTE/${monitorsMuted ? 1 : 0}`);
+  });
+}
+
+function toggleMuteAll() {
+  allOutputsMuted = !allOutputsMuted;
+  const btn = document.getElementById('muteAllBtn');
+  btn.classList.toggle('active', allOutputsMuted);
+  btn.style.background = allOutputsMuted ? '#ff453a' : '#333';
+  btn.style.color = allOutputsMuted ? '#fff' : '#aaa';
+  
+  // Mute all monitor outputs
+  Object.values(monitorOutputTracks).forEach(t => {
+    wwr_req(`SET/TRACK/${t.idx}/MUTE/${allOutputsMuted ? 1 : 0}`);
+  });
+  
+  // Mute master
+  wwr_req(`SET/MASTER/MUTE/${allOutputsMuted ? 1 : 0}`);
+}
 
 function toggleGlobalFx() {
   globalFxBypassed = !globalFxBypassed;
@@ -3148,26 +3181,20 @@ function toggleGlobalFx() {
   btn.classList.toggle('bypassed', globalFxBypassed);
   btn.textContent = globalFxBypassed ? 'FX OFF' : 'FX';
   
-  // Toggle all FX on all input tracks
+  // Toggle all FX on all input tracks using individual bypass commands
   inputTracks.forEach(t => {
+    // Send bypass toggle for each FX slot (0=Gate, 1=Comp, 2=EQ)
     for (let fxIdx = 0; fxIdx <= 2; fxIdx++) {
-      if (globalFxBypassed) {
-        // Bypass (disable) all FX
-        sendFxCommand(t.idx, fxIdx, -1, globalFxBypassed ? 0 : 1); // Special bypass command
+      if (oscWs && oscWs.readyState === WebSocket.OPEN) {
+        oscWs.send(JSON.stringify({
+          type: 'fxSetBypass',
+          trackIdx: t.idx,
+          fxIdx: fxIdx,
+          bypassed: globalFxBypassed
+        }));
       }
     }
   });
-  
-  // Send bypass command via OSC for all tracks
-  if (oscWs && oscWs.readyState === WebSocket.OPEN) {
-    inputTracks.forEach(t => {
-      oscWs.send(JSON.stringify({
-        type: 'globalFxBypass',
-        trackIdx: t.idx,
-        bypassed: globalFxBypassed
-      }));
-    });
-  }
 }
 
 // Reset Menu Functions

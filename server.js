@@ -107,6 +107,17 @@ function handleWebMessage(data) {
     } catch (e) {
       console.error('FX command file error:', e.message);
     }
+  } else if (data.type === 'fxSetBypass') {
+    // Write explicit bypass set command (not toggle)
+    const { trackIdx, fxIdx, bypassed } = data;
+    const cmd = `S,${trackIdx},${fxIdx},${bypassed ? 0 : 1}\n`; // S = Set bypass, 0=disabled, 1=enabled
+    
+    try {
+      fs.appendFileSync(FX_CMD_FILE, cmd);
+      console.log('→ FX Set Bypass:', cmd.trim());
+    } catch (e) {
+      console.error('FX command file error:', e.message);
+    }
   } else if (data.type === 'fxBypass') {
     // Write bypass toggle command
     const { trackIdx, fxIdx } = data;
