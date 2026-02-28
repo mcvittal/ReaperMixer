@@ -13,8 +13,16 @@ reaper.ShowConsoleMsg("FXRemote: Started. Watching " .. CMD_FILE .. "\n")
 
 -- Helper function to get track by index (0 = master, 1+ = regular tracks)
 function GetTrackByIndex(trackIdx)
-  if trackIdx == 0 then
-    return reaper.GetMasterTrack(0)
+  -- Ensure trackIdx is a number
+  trackIdx = tonumber(trackIdx) or 0
+  
+  if trackIdx == 0 or trackIdx < 1 then
+    -- Return master track for index 0 (or any invalid index)
+    local master = reaper.GetMasterTrack(0)
+    if not master then
+      reaper.ShowConsoleMsg("  WARNING: GetMasterTrack returned nil!\n")
+    end
+    return master
   else
     return reaper.GetTrack(0, trackIdx - 1) -- Convert to 0-indexed
   end
@@ -45,20 +53,23 @@ function ProcessCommands()
     for line in content:gmatch("[^\n]+") do
       reaper.ShowConsoleMsg("FXRemote: Processing: " .. line .. "\n")
       
-      local trackIdx, fxIdx, paramIdx, value = line:match("(%d+),(%d+),(%d+),([%d%.%-]+)")
-      if trackIdx then
-        trackIdx = tonumber(trackIdx)
-        fxIdx = tonumber(fxIdx)
-        paramIdx = tonumber(paramIdx)
-        value = tonumber(value)
+      local trackIdxStr, fxIdxStr, paramIdxStr, valueStr = line:match("(%d+),(%d+),(%d+),([%d%.%-]+)")
+      if trackIdxStr then
+        local trackIdx = tonumber(trackIdxStr)
+        local fxIdx = tonumber(fxIdxStr)
+        local paramIdx = tonumber(paramIdxStr)
+        local value = tonumber(valueStr)
+        
+        reaper.ShowConsoleMsg(string.format("  Parsed: track=%d, fx=%d, param=%d, val=%.4f\n", 
+          trackIdx, fxIdx, paramIdx, value))
         
         local track = GetTrackByIndex(trackIdx)
         if track then
           local retval = reaper.TrackFX_SetParamNormalized(track, fxIdx, paramIdx, value)
-          reaper.ShowConsoleMsg(string.format("  Track %d, FX %d, Param %d = %.3f (result: %s)\n", 
-            trackIdx, fxIdx, paramIdx, value, tostring(retval)))
+          reaper.ShowConsoleMsg(string.format("  Set FX param result: %s\n", tostring(retval)))
         else
-          reaper.ShowConsoleMsg("  ERROR: Track " .. trackIdx .. " not found\n")
+          reaper.ShowConsoleMsg(string.format("  ERROR: Track %d not found (parsed from '%s')\n", 
+            trackIdx, trackIdxStr))
         end
       end
       

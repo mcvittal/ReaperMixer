@@ -163,6 +163,7 @@ body {
   padding: 0;
   overflow: hidden;
   height: 100vh;
+  height: 100dvh; /* Dynamic viewport height - accounts for mobile address bar */
   user-select: none;
 }
 
@@ -213,9 +214,11 @@ body {
 #mixer-container {
   display: flex;
   height: calc(100vh - 52px);
+  height: calc(100dvh - 52px); /* Dynamic viewport height for mobile */
   overflow-x: auto;
   overflow-y: hidden;
   padding: 8px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0));
   gap: 6px;
   scroll-snap-type: x proximity;
 }
@@ -530,6 +533,8 @@ body {
   display: flex;
   gap: 4px;
   margin-top: 6px;
+  flex-shrink: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
 .btn {
