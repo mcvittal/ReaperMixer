@@ -2668,11 +2668,11 @@ function updateEqGraph() {
   // HPF frequency (20Hz to 20kHz logarithmic)
   const hpfFreq = 20 * Math.pow(1000, hpfVal);
   
-  // Fixed center frequencies for bands
+  // Use current frequencies for parametric bands
   const bands = [
     { freq: 100, db: lowDb, q: 0.7, type: 'lowshelf' },
-    { freq: 500, db: loMidDb, q: 1.4 },
-    { freq: 2500, db: hiMidDb, q: 1.4 },
+    { freq: currentEqFreqs.loMid, db: loMidDb, q: 1.4 },
+    { freq: currentEqFreqs.hiMid, db: hiMidDb, q: 1.4 },
     { freq: 8000, db: highDb, q: 0.7, type: 'highshelf' }
   ];
   
