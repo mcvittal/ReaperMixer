@@ -3011,8 +3011,9 @@ function updateEqGraph() {
     // Calculate combined response at this frequency
     let totalDb = 0;
     
-    // HPF response (12dB/oct highpass)
-    if (freq < hpfFreq * 2) {
+    // HPF response (12dB/oct highpass) - only show if HPF is enabled
+    const hpfIsEnabled = hpfEnabled[activeFxChannel] !== false && hpfVal > HPF_MIN_THRESHOLD;
+    if (hpfIsEnabled && freq < hpfFreq * 2) {
       const ratio = freq / hpfFreq;
       if (ratio < 1) {
         totalDb += -24 * (1 - ratio);
