@@ -1401,13 +1401,24 @@ function setupFaderDrag(handle, faderEl, trackIdx) {
 
 // Knob drag handling
 function setupKnobDrag(knob) {
-  let lastY, startValue;
+  let lastY, startY, startValue;
+  let touchStartTime = 0;
+  let totalMove = 0;
+  let tapTimeout = null;
   
   function start(e) {
     e.preventDefault();
     e.stopPropagation();
-    lastY = e.touches ? e.touches[0].clientY : e.clientY;
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    lastY = y;
+    startY = y;
     startValue = parseFloat(knob.dataset.value) || 0;
+    touchStartTime = Date.now();
+    totalMove = 0;
+    
+    // Clear any pending tap timeout
+    if (tapTimeout) clearTimeout(tapTimeout);
+    
     knob.classList.add('dragging');
     
     document.addEventListener("mousemove", move);
@@ -1420,6 +1431,9 @@ function setupKnobDrag(knob) {
     e.preventDefault();
     const y = e.touches ? e.touches[0].clientY : e.clientY;
     const dy = lastY - y;
+    
+    totalMove += Math.abs(dy);
+    
     lastY = y;
     
     // More sensitive: smaller divisor = faster response
@@ -1446,11 +1460,8 @@ function setupKnobDrag(knob) {
       knob.querySelector(".knob-text").textContent = panText;
       return;
     } else if (param === "reverb" && reverbTrackIdx !== null) {
-      // Control the send to reverb bus - Reaper uses AUXSEND for this
-      // Send index 0 is typically the first send on the track
       wwr_req(`SET/TRACK/${trackIdx}/SEND/0/VOL/${vol.toFixed(4)}`);
     } else if (param.startsWith("m") && inputToMonitorMap[param.toUpperCase()]) {
-      // Control the corresponding Mx/x track volume
       const monKey = param.toUpperCase();
       const monIdx = inputToMonitorMap[monKey]?.[inputNum];
       if (monIdx) {
@@ -1461,16 +1472,139 @@ function setupKnobDrag(knob) {
     updateKnob(knob, newValue);
   }
   
-  function stop() {
+  function stop(e) {
     knob.classList.remove('dragging');
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", stop);
+    document.removeEventListener("touchmove", move);
+    document.removeEventListener("touchend", stop);
+    
+    // Open popup fader on tap (quick touch without significant drag)
+    const elapsed = Date.now() - touchStartTime;
+    // More lenient: 50px movement threshold, 600ms time
+    const wasTap = totalMove < 50 && elapsed < 600;
+    
+    console.log('Knob tap check:', { totalMove, elapsed, wasTap });
+    
+    if (wasTap) {
+      const param = knob.dataset.param;
+      const trackIdx = parseInt(knob.dataset.track);
+      const inputNum = knob.dataset.inputNum;
+      const label = param === "pan" ? "Pan" : 
+                    param === "reverb" ? "Reverb" : 
+                    param.toUpperCase();
+      openSendPopupFader(knob, trackIdx, inputNum, param, label);
+    }
+  }
+  
+  knob.addEventListener("mousedown", start);
+  knob.addEventListener("touchstart", start, { passive: false });
+}
+
+// Popup fader for send knobs (reverb, monitors, pan)
+function openSendPopupFader(knob, trackIdx, inputNum, param, label) {
+  popupFaderKnob = knob;
+  popupFaderTrackIdx = trackIdx;
+  
+  if (popupFaderTimeout) clearTimeout(popupFaderTimeout);
+  
+  const value = parseFloat(knob.dataset.value) || (param === "pan" ? 0.5 : 0);
+  
+  document.getElementById("popup-fader-label").textContent = label;
+  document.getElementById("popup-fader-overlay").classList.add("show");
+  document.getElementById("popup-fader-overlay").dataset.param = param;
+  document.getElementById("popup-fader-overlay").dataset.inputNum = inputNum || "";
+  document.getElementById("popup-fader-overlay").dataset.isSend = "true";
+  
+  updateSendPopupDisplay(value, param);
+  setupSendPopupDrag(trackIdx, inputNum, param);
+  resetPopupFaderTimeout();
+}
+
+function updateSendPopupDisplay(value, param) {
+  const track = document.getElementById("popup-fader-track");
+  const fill = document.getElementById("popup-fader-fill");
+  const handle = document.getElementById("popup-fader-handle");
+  const valueDisplay = document.getElementById("popup-fader-value");
+  
+  const trackHeight = track.clientHeight - handle.clientHeight;
+  const top = trackHeight * (1 - value);
+  
+  handle.style.top = top + "px";
+  fill.style.height = (value * 100) + "%";
+  
+  if (param === "pan") {
+    let panText = "C";
+    if (value < 0.48) panText = Math.round((0.5 - value) * 200) + "L";
+    else if (value > 0.52) panText = Math.round((value - 0.5) * 200) + "R";
+    valueDisplay.textContent = panText;
+  } else {
+    valueDisplay.textContent = Math.round(value * 100) + "%";
+  }
+}
+
+function setupSendPopupDrag(trackIdx, inputNum, param) {
+  const track = document.getElementById("popup-fader-track");
+  const handle = document.getElementById("popup-fader-handle");
+  
+  function getValueFromY(y) {
+    const rect = track.getBoundingClientRect();
+    const trackHeight = track.clientHeight - handle.clientHeight;
+    const relY = y - rect.top - (handle.clientHeight / 2);
+    return 1 - Math.max(0, Math.min(1, relY / trackHeight));
+  }
+  
+  function update(y) {
+    resetPopupFaderTimeout();
+    const value = getValueFromY(y);
+    updateSendPopupDisplay(value, param);
+    
+    if (popupFaderKnob) {
+      popupFaderKnob.dataset.value = value;
+      const vol = value * value;
+      
+      if (param === "pan") {
+        const panVal = (value - 0.5) * 2;
+        wwr_req(`SET/TRACK/${trackIdx}/PAN/${panVal.toFixed(4)}`);
+        let panText = "C";
+        if (value < 0.48) panText = Math.round((0.5 - value) * 200) + "L";
+        else if (value > 0.52) panText = Math.round((value - 0.5) * 200) + "R";
+        popupFaderKnob.innerHTML = createKnobSVG(value, "pan") + `<span class="knob-text">${panText}</span>`;
+      } else if (param === "reverb") {
+        wwr_req(`SET/TRACK/${trackIdx}/SEND/0/VOL/${vol.toFixed(4)}`);
+        updateKnob(popupFaderKnob, value);
+      } else if (param.startsWith("m")) {
+        const monKey = param.toUpperCase();
+        const monIdx = inputToMonitorMap[monKey]?.[inputNum];
+        if (monIdx) wwr_req(`SET/TRACK/${monIdx}/VOL/${vol.toFixed(4)}`);
+        updateKnob(popupFaderKnob, value);
+      }
+    }
+  }
+  
+  function start(e) {
+    e.preventDefault();
+    update(e.touches ? e.touches[0].clientY : e.clientY);
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", stop);
+    document.addEventListener("touchmove", move, { passive: false });
+    document.addEventListener("touchend", stop);
+  }
+  
+  function move(e) {
+    e.preventDefault();
+    update(e.touches ? e.touches[0].clientY : e.clientY);
+  }
+  
+  function stop() {
     document.removeEventListener("mousemove", move);
     document.removeEventListener("mouseup", stop);
     document.removeEventListener("touchmove", move);
     document.removeEventListener("touchend", stop);
   }
   
-  knob.addEventListener("mousedown", start);
-  knob.addEventListener("touchstart", start, { passive: false });
+  track.onmousedown = start;
+  track.ontouchstart = start;
 }
 
 function updateKnob(knob, value) {
@@ -1855,7 +1989,8 @@ function setupPopupFaderDrag() {
 function setupFxKnobDrag(knob, trackIdx) {
   let lastY, startValue;
   let touchStartTime = 0;
-  let touchMoved = false;
+  let totalMove = 0;
+  let tapTimeout = null;
   
   function resetToDefault() {
     const fxIdx = parseInt(knob.dataset.fxIdx);
@@ -1891,7 +2026,10 @@ function setupFxKnobDrag(knob, trackIdx) {
     lastY = e.touches ? e.touches[0].clientY : e.clientY;
     startValue = parseFloat(knob.dataset.value) || 0.5;
     touchStartTime = Date.now();
-    touchMoved = false;
+    totalMove = 0;
+    
+    if (tapTimeout) clearTimeout(tapTimeout);
+    
     knob.classList.add('dragging');
     
     document.addEventListener("mousemove", move);
@@ -1905,8 +2043,7 @@ function setupFxKnobDrag(knob, trackIdx) {
     const y = e.touches ? e.touches[0].clientY : e.clientY;
     const dy = lastY - y;
     
-    // Mark as moved if significant movement
-    if (Math.abs(dy) > 3) touchMoved = true;
+    totalMove += Math.abs(dy);
     
     lastY = y;
     
@@ -1943,9 +2080,14 @@ function setupFxKnobDrag(knob, trackIdx) {
     document.removeEventListener("touchmove", move);
     document.removeEventListener("touchend", stop);
     
-    // If it was a quick tap without movement, open popup fader
+    // If it was a quick tap without significant movement, open popup fader
     const elapsed = Date.now() - touchStartTime;
-    if (!touchMoved && elapsed < 300) {
+    // More lenient: 50px movement threshold, 600ms time
+    const wasTap = totalMove < 50 && elapsed < 600;
+    
+    console.log('FX Knob tap check:', { totalMove, elapsed, wasTap });
+    
+    if (wasTap) {
       const fxIdx = knob.dataset.fxIdx;
       const paramIdx = knob.dataset.paramIdx;
       const label = knob.closest('.fx-param')?.querySelector('.fx-param-label')?.textContent || 'Parameter';
