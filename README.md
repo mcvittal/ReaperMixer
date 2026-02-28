@@ -4,7 +4,7 @@ A web-based remote control interface for Reaper DAW, designed for live sound mix
 
 ## Features
 
-- 32-channel fader control with volume, pan, mute, and solo
+- As many channels as your audio interface supports control with volume, pan, mute, and solo (Currently just 4 channels in and 4 out (2 for FOH and 2 for wedge mixes) for demonstration and testing purposes)
 - Per-channel EQ (Low, Lo-Mid, Hi-Mid, High + HPF)
 - Per-channel dynamics (Gate + Compressor)
 - VU metering
