@@ -772,6 +772,113 @@ body {
   transition: width 0.05s;
 }
 
+/* Popup Fader for Knobs */
+.popup-fader-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 200;
+  display: none;
+  justify-content: center;
+  align-items: center;
+}
+
+.popup-fader-overlay.show {
+  display: flex;
+}
+
+.popup-fader {
+  background: #2a2a2a;
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  min-width: 120px;
+}
+
+.popup-fader-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+}
+
+.popup-fader-track {
+  width: 60px;
+  height: 200px;
+  background: #111;
+  border-radius: 8px;
+  position: relative;
+  touch-action: none;
+  margin-bottom: 12px;
+}
+
+.popup-fader-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, #4a9eff 0%, #7ab8ff 100%);
+  border-radius: 0 0 8px 8px;
+}
+
+.popup-fader-handle {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 52px;
+  height: 28px;
+  background: linear-gradient(180deg, #777 0%, #555 50%, #444 100%);
+  border-radius: 6px;
+  border: 2px solid #999;
+  z-index: 10;
+}
+
+.popup-fader-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 3px;
+  background: #ccc;
+  border-radius: 2px;
+}
+
+.popup-fader-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  background: #333;
+  padding: 8px 16px;
+  border-radius: 6px;
+  min-width: 80px;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .popup-fader-track {
+    width: 70px;
+    height: 250px;
+  }
+  
+  .popup-fader-handle {
+    width: 60px;
+    height: 32px;
+  }
+  
+  .popup-fader-value {
+    font-size: 20px;
+  }
+}
+
 /* Scrollbar */
 #mixer-container::-webkit-scrollbar {
   height: 6px;
@@ -799,6 +906,18 @@ body {
 </div>
 
 <div id="mixer-container"></div>
+
+<!-- Popup Fader for touch-friendly knob adjustment -->
+<div class="popup-fader-overlay" id="popup-fader-overlay" onclick="closePopupFader(event)">
+  <div class="popup-fader" onclick="event.stopPropagation()">
+    <div class="popup-fader-label" id="popup-fader-label">Parameter</div>
+    <div class="popup-fader-track" id="popup-fader-track">
+      <div class="popup-fader-fill" id="popup-fader-fill"></div>
+      <div class="popup-fader-handle" id="popup-fader-handle"></div>
+    </div>
+    <div class="popup-fader-value" id="popup-fader-value">0</div>
+  </div>
+</div>
 
 <div class="fx-panel-overlay" id="fx-overlay">
   <div class="fx-panel">
@@ -1613,18 +1732,136 @@ function toggleFxBypass(trackIdx, fxIdx) {
   }
 }
 
+// Popup Fader State
+let popupFaderKnob = null;
+let popupFaderTrackIdx = null;
+let popupFaderTimeout = null;
+
+function openPopupFader(knob, trackIdx, label, fxIdx, paramIdx) {
+  popupFaderKnob = knob;
+  popupFaderTrackIdx = trackIdx;
+  
+  // Clear any existing timeout
+  if (popupFaderTimeout) clearTimeout(popupFaderTimeout);
+  
+  const value = parseFloat(knob.dataset.value) || 0.5;
+  
+  document.getElementById("popup-fader-label").textContent = label;
+  document.getElementById("popup-fader-overlay").classList.add("show");
+  document.getElementById("popup-fader-overlay").dataset.fxIdx = fxIdx;
+  document.getElementById("popup-fader-overlay").dataset.paramIdx = paramIdx;
+  
+  updatePopupFaderDisplay(value, fxIdx, paramIdx);
+  setupPopupFaderDrag();
+  
+  // Auto-close after 5 seconds of inactivity
+  resetPopupFaderTimeout();
+}
+
+function resetPopupFaderTimeout() {
+  if (popupFaderTimeout) clearTimeout(popupFaderTimeout);
+  popupFaderTimeout = setTimeout(closePopupFader, 5000);
+}
+
+function closePopupFader(e) {
+  if (e && e.target && e.target.closest('.popup-fader')) return;
+  document.getElementById("popup-fader-overlay").classList.remove("show");
+  popupFaderKnob = null;
+  popupFaderTrackIdx = null;
+  if (popupFaderTimeout) clearTimeout(popupFaderTimeout);
+}
+
+function updatePopupFaderDisplay(value, fxIdx, paramIdx) {
+  const track = document.getElementById("popup-fader-track");
+  const fill = document.getElementById("popup-fader-fill");
+  const handle = document.getElementById("popup-fader-handle");
+  const valueDisplay = document.getElementById("popup-fader-value");
+  
+  const trackHeight = track.clientHeight - handle.clientHeight;
+  const top = trackHeight * (1 - value);
+  
+  handle.style.top = top + "px";
+  fill.style.height = (value * 100) + "%";
+  valueDisplay.textContent = formatFxValue(parseInt(fxIdx), parseInt(paramIdx), value);
+}
+
+function setupPopupFaderDrag() {
+  const track = document.getElementById("popup-fader-track");
+  const handle = document.getElementById("popup-fader-handle");
+  
+  function getValueFromY(y) {
+    const rect = track.getBoundingClientRect();
+    const trackHeight = track.clientHeight - handle.clientHeight;
+    const relY = y - rect.top - (handle.clientHeight / 2);
+    const pct = 1 - Math.max(0, Math.min(1, relY / trackHeight));
+    return pct;
+  }
+  
+  function update(y) {
+    resetPopupFaderTimeout();
+    const value = getValueFromY(y);
+    const fxIdx = document.getElementById("popup-fader-overlay").dataset.fxIdx;
+    const paramIdx = document.getElementById("popup-fader-overlay").dataset.paramIdx;
+    
+    updatePopupFaderDisplay(value, fxIdx, paramIdx);
+    
+    // Update the source knob
+    if (popupFaderKnob) {
+      popupFaderKnob.dataset.value = value;
+      popupFaderKnob.innerHTML = createKnobSVG(value);
+      
+      const paramContainer = popupFaderKnob.closest('.fx-param');
+      const valueEl = paramContainer?.querySelector('.fx-param-value');
+      if (valueEl) valueEl.textContent = formatFxValue(parseInt(fxIdx), parseInt(paramIdx), value);
+    }
+    
+    // Send to Reaper
+    if (popupFaderTrackIdx !== null) {
+      sendFxCommand(popupFaderTrackIdx, parseInt(fxIdx), parseInt(paramIdx), value);
+      const partner = getLinkedPartner(popupFaderTrackIdx);
+      if (partner) sendFxCommand(partner, parseInt(fxIdx), parseInt(paramIdx), value);
+    }
+  }
+  
+  function start(e) {
+    e.preventDefault();
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    update(y);
+    
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", stop);
+    document.addEventListener("touchmove", move, { passive: false });
+    document.addEventListener("touchend", stop);
+  }
+  
+  function move(e) {
+    e.preventDefault();
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    update(y);
+  }
+  
+  function stop() {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", stop);
+    document.removeEventListener("touchmove", move);
+    document.removeEventListener("touchend", stop);
+  }
+  
+  // Remove old listeners
+  track.onmousedown = start;
+  track.ontouchstart = start;
+}
+
 function setupFxKnobDrag(knob, trackIdx) {
   let lastY, startValue;
   
-  // Double-tap/click to reset to default
-  let lastTap = 0;
-  knob.addEventListener("touchend", (e) => {
-    const now = Date.now();
-    if (now - lastTap < 300) {
-      e.preventDefault();
-      resetToDefault();
-    }
-    lastTap = now;
+  // Tap to open popup fader (touch-friendly)
+  knob.addEventListener("click", (e) => {
+    e.preventDefault();
+    const fxIdx = knob.dataset.fxIdx;
+    const paramIdx = knob.dataset.paramIdx;
+    const label = knob.closest('.fx-param')?.querySelector('.fx-param-label')?.textContent || 'Parameter';
+    openPopupFader(knob, trackIdx, label, fxIdx, paramIdx);
   });
   
   function resetToDefault() {
