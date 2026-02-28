@@ -224,14 +224,22 @@ body {
 .channel {
   background: linear-gradient(180deg, #2a2a2a 0%, #1e1e1e 100%);
   border-radius: 10px;
-  width: 80px;
-  min-width: 80px;
+  width: 90px;
+  min-width: 90px;
   padding: 8px 6px;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   scroll-snap-align: start;
   border: 1px solid #3a3a3a;
+}
+
+@media (max-width: 768px) {
+  .channel {
+    width: 95px;
+    min-width: 95px;
+    padding: 10px 8px;
+  }
 }
 
 .channel.master {
@@ -280,20 +288,22 @@ body {
 .sends-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-bottom: 6px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .send-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 6px;
 }
 
 .send-label {
-  font-size: 8px;
+  font-size: 10px;
+  font-weight: 600;
   color: #888;
-  width: 20px;
+  width: 24px;
 }
 
 .send-knob-container {
@@ -302,12 +312,26 @@ body {
   justify-content: center;
 }
 
+@media (max-width: 768px) {
+  .sends-section {
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  
+  .send-label {
+    font-size: 11px;
+    width: 28px;
+  }
+}
+
 .knob {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   position: relative;
   cursor: pointer;
   touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .knob svg {
@@ -318,15 +342,14 @@ body {
 .knob-track {
   fill: none;
   stroke: #444;
-  stroke-width: 4;
+  stroke-width: 5;
 }
 
 .knob-value {
   fill: none;
   stroke: #4a9eff;
-  stroke-width: 4;
+  stroke-width: 5;
   stroke-linecap: round;
-  transition: stroke-dashoffset 0.05s;
 }
 
 .knob.reverb .knob-value { stroke: #bf5af2; }
@@ -335,6 +358,18 @@ body {
 .knob.mon3 .knob-value { stroke: #5ac8fa; }
 .knob.mon4 .knob-value { stroke: #ff2d55; }
 .knob.pan .knob-value { stroke: #888; }
+
+.knob.dragging {
+  transform: scale(1.15);
+  z-index: 20;
+}
+
+@media (max-width: 768px) {
+  .knob {
+    width: 52px;
+    height: 52px;
+  }
+}
 
 .pan-section {
   display: flex;
@@ -347,8 +382,16 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 8px;
-  color: #aaa;
+  font-size: 10px;
+  font-weight: 600;
+  color: #ccc;
+  pointer-events: none;
+}
+
+@media (max-width: 768px) {
+  .knob-text {
+    font-size: 11px;
+  }
 }
 
 /* Link Button */
@@ -622,12 +665,14 @@ body {
 }
 
 .fx-param-knob {
-  width: 48px;
-  height: 48px;
-  margin: 0 auto 4px;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 6px;
   position: relative;
   cursor: pointer;
   touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .fx-param-knob svg {
@@ -636,17 +681,49 @@ body {
 }
 
 .fx-param-knob .knob-track {
-  stroke-width: 5;
+  stroke-width: 6;
 }
 
 .fx-param-knob .knob-value {
-  stroke-width: 5;
+  stroke-width: 6;
+}
+
+.fx-param-knob.dragging {
+  transform: scale(1.15);
+  z-index: 20;
 }
 
 .fx-param-value {
-  font-size: 10px;
-  color: #aaa;
+  font-size: 12px;
+  font-weight: 500;
+  color: #ccc;
   font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 768px) {
+  .fx-param-knob {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto 8px;
+  }
+  
+  .fx-param-knob .knob-track,
+  .fx-param-knob .knob-value {
+    stroke-width: 7;
+  }
+  
+  .fx-param-value {
+    font-size: 14px;
+  }
+  
+  .fx-param-label {
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  
+  .fx-params {
+    gap: 16px;
+  }
 }
 
 /* EQ Specific */
@@ -1205,12 +1282,14 @@ function setupFaderDrag(handle, faderEl, trackIdx) {
 
 // Knob drag handling
 function setupKnobDrag(knob) {
-  let startY, startValue;
+  let lastY, startValue;
   
   function start(e) {
     e.preventDefault();
-    startY = e.touches ? e.touches[0].clientY : e.clientY;
+    e.stopPropagation();
+    lastY = e.touches ? e.touches[0].clientY : e.clientY;
     startValue = parseFloat(knob.dataset.value) || 0;
+    knob.classList.add('dragging');
     
     document.addEventListener("mousemove", move);
     document.addEventListener("mouseup", stop);
@@ -1221,8 +1300,12 @@ function setupKnobDrag(knob) {
   function move(e) {
     e.preventDefault();
     const y = e.touches ? e.touches[0].clientY : e.clientY;
-    const delta = (startY - y) / 150;
-    let newValue = Math.max(0, Math.min(1, startValue + delta));
+    const dy = lastY - y;
+    lastY = y;
+    
+    // More sensitive: smaller divisor = faster response
+    const currentVal = parseFloat(knob.dataset.value) || 0;
+    let newValue = Math.max(0, Math.min(1, currentVal + (dy * 0.008)));
     
     const param = knob.dataset.param;
     const trackIdx = parseInt(knob.dataset.track);
@@ -1260,6 +1343,7 @@ function setupKnobDrag(knob) {
   }
   
   function stop() {
+    knob.classList.remove('dragging');
     document.removeEventListener("mousemove", move);
     document.removeEventListener("mouseup", stop);
     document.removeEventListener("touchmove", move);
@@ -1530,11 +1614,20 @@ function toggleFxBypass(trackIdx, fxIdx) {
 }
 
 function setupFxKnobDrag(knob, trackIdx) {
-  let startY, startValue;
+  let lastY, startValue;
   
-  // Double-click to reset to default
-  knob.addEventListener("dblclick", (e) => {
-    e.preventDefault();
+  // Double-tap/click to reset to default
+  let lastTap = 0;
+  knob.addEventListener("touchend", (e) => {
+    const now = Date.now();
+    if (now - lastTap < 300) {
+      e.preventDefault();
+      resetToDefault();
+    }
+    lastTap = now;
+  });
+  
+  function resetToDefault() {
     const fxIdx = parseInt(knob.dataset.fxIdx);
     const paramIdx = parseInt(knob.dataset.paramIdx);
     const defaultVal = parseFloat(knob.dataset.default) || 0.5;
@@ -1554,6 +1647,12 @@ function setupFxKnobDrag(knob, trackIdx) {
     if (valueDisplay) {
       valueDisplay.textContent = formatFxValue(fxIdx, paramIdx, defaultVal);
     }
+  }
+  
+  // Double-click to reset to default (desktop)
+  knob.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    resetToDefault();
   });
   
   function start(e) {
@@ -1561,14 +1660,13 @@ function setupFxKnobDrag(knob, trackIdx) {
     e.stopPropagation();
     lastY = e.touches ? e.touches[0].clientY : e.clientY;
     startValue = parseFloat(knob.dataset.value) || 0.5;
+    knob.classList.add('dragging');
     
     document.addEventListener("mousemove", move);
     document.addEventListener("mouseup", stop);
     document.addEventListener("touchmove", move, { passive: false });
     document.addEventListener("touchend", stop);
   }
-  
-  let lastY;
   
   function move(e) {
     e.preventDefault();
@@ -1579,9 +1677,9 @@ function setupFxKnobDrag(knob, trackIdx) {
     const fxIdx = parseInt(knob.dataset.fxIdx);
     const paramIdx = parseInt(knob.dataset.paramIdx);
     
-    // Update local display
+    // Update local display - more sensitive for touch
     const currentVal = parseFloat(knob.dataset.value) || 0.5;
-    const newValue = Math.max(0, Math.min(1, currentVal + (dy * 0.005)));
+    const newValue = Math.max(0, Math.min(1, currentVal + (dy * 0.008)));
     knob.dataset.value = newValue;
     knob.innerHTML = createKnobSVG(newValue);
     
@@ -1603,6 +1701,7 @@ function setupFxKnobDrag(knob, trackIdx) {
   }
   
   function stop() {
+    knob.classList.remove('dragging');
     document.removeEventListener("mousemove", move);
     document.removeEventListener("mouseup", stop);
     document.removeEventListener("touchmove", move);
