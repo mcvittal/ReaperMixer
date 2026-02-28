@@ -121,6 +121,11 @@ function handleFxValues(data) {
       if (valueDisplay) {
         valueDisplay.textContent = formatFxValue(fxIdx, paramIdx, value);
       }
+      
+      // Sync HPF toggle state when HPF frequency param (12) is received
+      if (paramIdx === 12 && (fxIdx === 2 || fxIdx === 0)) {
+        updateHpfToggleState(data.trackIdx, fxIdx, value);
+      }
     }
   });
 }
@@ -2284,8 +2289,11 @@ function toggleFxBypass(trackIdx, fxIdx) {
   }
 }
 
-// HPF enable state per track
+// HPF enable state and stored frequency per track
 let hpfEnabled = {};
+let hpfStoredFreq = {}; // Store user's frequency when disabling
+const HPF_MIN_THRESHOLD = 0.05; // Values below this are considered "off" (approx 30Hz)
+const HPF_DEFAULT_FREQ = 0.1864; // Default HPF frequency (~80Hz)
 
 function toggleHpf(btn, trackIdx, fxIdx) {
   const isEnabled = !hpfEnabled[trackIdx];
@@ -2294,20 +2302,77 @@ function toggleHpf(btn, trackIdx, fxIdx) {
   btn.classList.toggle('active', isEnabled);
   btn.textContent = isEnabled ? 'ON' : 'OFF';
   
-  // When disabled, set HPF to minimum (20Hz = ~0 normalized)
-  // When enabled, restore the knob value
   const knob = document.querySelector(`.fx-param-knob[data-fx-idx="${fxIdx}"][data-param-idx="12"]`);
-  const knobValue = parseFloat(knob?.dataset?.value) || 0.1414;
+  const currentFreqValue = parseFloat(knob?.dataset?.value) || 0;
   
-  const value = isEnabled ? knobValue : 0;
-  sendFxCommand(trackIdx, fxIdx, 12, value);
+  if (isEnabled) {
+    // Restore stored frequency or use default (~80Hz)
+    const restoreValue = hpfStoredFreq[trackIdx] || HPF_DEFAULT_FREQ;
+    sendFxCommand(trackIdx, fxIdx, 12, restoreValue);
+    if (knob) {
+      knob.dataset.value = restoreValue;
+      knob.innerHTML = createKnobSVG(restoreValue);
+      knob.style.opacity = '1';
+      knob.style.pointerEvents = 'auto';
+      const paramContainer = knob.closest('.fx-param');
+      const valueDisplay = paramContainer?.querySelector('.fx-param-value');
+      if (valueDisplay) valueDisplay.textContent = formatFxValue(fxIdx, 12, restoreValue);
+    }
+  } else {
+    // Store current frequency if it's a valid value (not already at minimum)
+    if (currentFreqValue > HPF_MIN_THRESHOLD) {
+      hpfStoredFreq[trackIdx] = currentFreqValue;
+    }
+    // Set to minimum (20Hz) to effectively disable
+    sendFxCommand(trackIdx, fxIdx, 12, 0);
+    if (knob) {
+      knob.dataset.value = 0;
+      knob.innerHTML = createKnobSVG(0);
+      knob.style.opacity = '0.4';
+      knob.style.pointerEvents = 'none'; // Disable knob when HPF is off
+      const paramContainer = knob.closest('.fx-param');
+      const valueDisplay = paramContainer?.querySelector('.fx-param-value');
+      if (valueDisplay) valueDisplay.textContent = '20 Hz (OFF)';
+    }
+  }
   
   const partner = getLinkedPartner(trackIdx);
   if (partner) {
     hpfEnabled[partner] = isEnabled;
-    sendFxCommand(partner, fxIdx, 12, value);
+    if (hpfStoredFreq[trackIdx]) {
+      hpfStoredFreq[partner] = hpfStoredFreq[trackIdx];
+    }
+    sendFxCommand(partner, fxIdx, 12, isEnabled ? (hpfStoredFreq[partner] || HPF_DEFAULT_FREQ) : 0);
   }
   
+  updateEqGraph();
+}
+
+// Update HPF toggle state based on actual frequency value
+function updateHpfToggleState(trackIdx, fxIdx, freqValue) {
+  const isEnabled = freqValue > HPF_MIN_THRESHOLD;
+  hpfEnabled[trackIdx] = isEnabled;
+  
+  // Store the frequency if it's enabled
+  if (isEnabled) {
+    hpfStoredFreq[trackIdx] = freqValue;
+  }
+  
+  // Update the toggle button
+  const btn = document.querySelector(`.hpf-toggle[data-track="${trackIdx}"]`);
+  if (btn) {
+    btn.classList.toggle('active', isEnabled);
+    btn.textContent = isEnabled ? 'ON' : 'OFF';
+  }
+  
+  // Update the knob opacity
+  const knob = document.querySelector(`.fx-param-knob[data-fx-idx="${fxIdx}"][data-param-idx="12"]`);
+  if (knob) {
+    knob.style.opacity = isEnabled ? '1' : '0.4';
+    knob.style.pointerEvents = isEnabled ? 'auto' : 'none';
+  }
+  
+  // Update EQ graph to reflect HPF state
   updateEqGraph();
 }
 
