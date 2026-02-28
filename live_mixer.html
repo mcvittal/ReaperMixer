@@ -1299,6 +1299,7 @@ body {
   <div class="reset-menu" onclick="event.stopPropagation()">
     <div class="reset-menu-title">Reset Options</div>
     <button class="reset-option" onclick="confirmReset('faders')">🎚️ Reset All Faders to Unity</button>
+    <button class="reset-option" onclick="confirmReset('reverb')">💧 Reset All Reverb Sends to 0</button>
     <button class="reset-option" onclick="confirmReset('eq')">📊 Reset All EQs to Flat</button>
     <button class="reset-option" onclick="confirmReset('gates')">🚧 Reset All Gates to Default</button>
     <button class="reset-option" onclick="confirmReset('comps')">🔊 Reset All Compressors to Default</button>
@@ -3067,6 +3068,7 @@ function closeResetMenu(e) {
 function confirmReset(type) {
   const messages = {
     'faders': 'Reset all faders to unity (0 dB)?',
+    'reverb': 'Reset all reverb sends to 0?',
     'eq': 'Reset all EQs to flat?',
     'gates': 'Reset all gates to default?',
     'comps': 'Reset all compressors to default?',
@@ -3108,6 +3110,19 @@ function performReset(type) {
     if (type === 'faders' || type === 'all') {
       wwr_req(`SET/TRACK/${trackIdx}/VOL/${unityVol.toFixed(8)}`);
       if (partner) wwr_req(`SET/TRACK/${partner}/VOL/${unityVol.toFixed(8)}`);
+    }
+    
+    // Reset reverb sends (only on input tracks)
+    if ((type === 'reverb' || type === 'all') && isInput) {
+      wwr_req(`SET/TRACK/${trackIdx}/SEND/0/VOL/0`);
+      if (partner) wwr_req(`SET/TRACK/${partner}/SEND/0/VOL/0`);
+      // Update the knob display
+      const reverbKnob = document.querySelector(`.knob.reverb[data-track="${trackIdx}"]`);
+      if (reverbKnob) updateKnob(reverbKnob, 0);
+      if (partner) {
+        const partnerKnob = document.querySelector(`.knob.reverb[data-track="${partner}"]`);
+        if (partnerKnob) updateKnob(partnerKnob, 0);
+      }
     }
     
     if (type === 'eq' || type === 'all') {
