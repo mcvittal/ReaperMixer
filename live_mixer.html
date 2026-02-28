@@ -1037,6 +1037,74 @@ body {
   text-align: center;
 }
 
+/* Frequency Slider for EQ */
+.popup-freq-container {
+  width: 100%;
+  margin-top: 16px;
+  display: none;
+}
+
+.popup-freq-container.show {
+  display: block;
+}
+
+.popup-freq-label {
+  font-size: 11px;
+  color: #888;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.popup-freq-track {
+  width: 100%;
+  height: 40px;
+  background: #111;
+  border-radius: 8px;
+  position: relative;
+  touch-action: none;
+}
+
+.popup-freq-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, #30d158 0%, #4a9eff 50%, #ff9500 100%);
+  border-radius: 8px 0 0 8px;
+  opacity: 0.3;
+}
+
+.popup-freq-handle {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 34px;
+  background: linear-gradient(180deg, #777 0%, #555 50%, #444 100%);
+  border-radius: 6px;
+  border: 2px solid #999;
+  z-index: 10;
+}
+
+.popup-freq-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #4a9eff;
+  text-align: center;
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.popup-freq-range {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: #555;
+  margin-top: 4px;
+  padding: 0 4px;
+}
+
 @media (max-width: 768px) {
   .popup-fader-track {
     width: 70px;
@@ -1090,6 +1158,18 @@ body {
       <div class="popup-fader-handle" id="popup-fader-handle"></div>
     </div>
     <div class="popup-fader-value" id="popup-fader-value">0</div>
+    <div class="popup-freq-container" id="popup-freq-container">
+      <div class="popup-freq-label">Frequency</div>
+      <div class="popup-freq-track" id="popup-freq-track">
+        <div class="popup-freq-fill" id="popup-freq-fill"></div>
+        <div class="popup-freq-handle" id="popup-freq-handle"></div>
+      </div>
+      <div class="popup-freq-value" id="popup-freq-value">500 Hz</div>
+      <div class="popup-freq-range">
+        <span id="popup-freq-min">20 Hz</span>
+        <span id="popup-freq-max">20 kHz</span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2114,12 +2194,170 @@ function setupPopupFaderDrag() {
   track.ontouchstart = start;
 }
 
+// EQ Frequency parameter mapping for ReaEQ
+// Band 2 (Lo-Mid): freq=3, gain=4
+// Band 3 (Hi-Mid): freq=6, gain=7
+const EQ_BAND_FREQ_MAP = {
+  '4': { freqParam: 3, name: 'Lo-Mid', minFreq: 100, maxFreq: 2000 },
+  '7': { freqParam: 6, name: 'Hi-Mid', minFreq: 800, maxFreq: 8000 }
+};
+
+// Current frequency values for range limiting
+let currentEqFreqs = { loMid: 500, hiMid: 2500 };
+
 // Open popup for FX knobs - triggered by button click
 function openFxKnobPopup(knob, trackIdx) {
   const fxIdx = knob.dataset.fxIdx;
   const paramIdx = knob.dataset.paramIdx;
   const label = knob.closest('.fx-param')?.querySelector('.fx-param-label')?.textContent || 'Parameter';
+  
+  // Check if this is an EQ band with frequency control
+  const isEqBand = (fxIdx === '2' || fxIdx === '0') && EQ_BAND_FREQ_MAP[paramIdx];
+  
   openPopupFader(knob, trackIdx, label, fxIdx, paramIdx);
+  
+  // Show frequency slider for parametric EQ bands
+  const freqContainer = document.getElementById('popup-freq-container');
+  if (isEqBand) {
+    const bandInfo = EQ_BAND_FREQ_MAP[paramIdx];
+    freqContainer.classList.add('show');
+    freqContainer.dataset.freqParam = bandInfo.freqParam;
+    freqContainer.dataset.bandName = bandInfo.name;
+    
+    // Calculate dynamic range limits
+    let minFreq = bandInfo.minFreq;
+    let maxFreq = bandInfo.maxFreq;
+    
+    // Limit Lo-Mid max to below Hi-Mid current freq
+    if (paramIdx === '4' && currentEqFreqs.hiMid) {
+      maxFreq = Math.min(maxFreq, currentEqFreqs.hiMid * 0.8);
+    }
+    // Limit Hi-Mid min to above Lo-Mid current freq
+    if (paramIdx === '7' && currentEqFreqs.loMid) {
+      minFreq = Math.max(minFreq, currentEqFreqs.loMid * 1.25);
+    }
+    
+    freqContainer.dataset.minFreq = minFreq;
+    freqContainer.dataset.maxFreq = maxFreq;
+    
+    // Update range labels
+    document.getElementById('popup-freq-min').textContent = formatFreq(minFreq);
+    document.getElementById('popup-freq-max').textContent = formatFreq(maxFreq);
+    
+    // Get current frequency value and set slider position
+    const currentFreq = paramIdx === '4' ? currentEqFreqs.loMid : currentEqFreqs.hiMid;
+    const normalizedFreq = freqToNormalized(currentFreq, minFreq, maxFreq);
+    updateFreqSliderDisplay(normalizedFreq, currentFreq);
+    
+    setupFreqSliderDrag(trackIdx, fxIdx, bandInfo.freqParam, paramIdx);
+  } else {
+    freqContainer.classList.remove('show');
+  }
+}
+
+// Format frequency for display
+function formatFreq(freq) {
+  if (freq >= 1000) {
+    return (freq / 1000).toFixed(1) + ' kHz';
+  }
+  return Math.round(freq) + ' Hz';
+}
+
+// Convert frequency to normalized 0-1 value (logarithmic)
+function freqToNormalized(freq, minFreq, maxFreq) {
+  const logMin = Math.log10(minFreq);
+  const logMax = Math.log10(maxFreq);
+  const logFreq = Math.log10(freq);
+  return (logFreq - logMin) / (logMax - logMin);
+}
+
+// Convert normalized 0-1 to frequency (logarithmic)
+function normalizedToFreq(normalized, minFreq, maxFreq) {
+  const logMin = Math.log10(minFreq);
+  const logMax = Math.log10(maxFreq);
+  const logFreq = logMin + normalized * (logMax - logMin);
+  return Math.pow(10, logFreq);
+}
+
+// Update frequency slider display
+function updateFreqSliderDisplay(normalized, freq) {
+  const track = document.getElementById('popup-freq-track');
+  const handle = document.getElementById('popup-freq-handle');
+  const fill = document.getElementById('popup-freq-fill');
+  const valueDisplay = document.getElementById('popup-freq-value');
+  
+  const trackWidth = track.clientWidth - handle.clientWidth;
+  const left = normalized * trackWidth + (handle.clientWidth / 2);
+  
+  handle.style.left = left + 'px';
+  fill.style.width = (normalized * 100) + '%';
+  valueDisplay.textContent = formatFreq(freq);
+}
+
+// Setup frequency slider drag
+function setupFreqSliderDrag(trackIdx, fxIdx, freqParam, gainParam) {
+  const track = document.getElementById('popup-freq-track');
+  const handle = document.getElementById('popup-freq-handle');
+  const container = document.getElementById('popup-freq-container');
+  
+  function getValueFromX(x) {
+    const rect = track.getBoundingClientRect();
+    const trackWidth = track.clientWidth - handle.clientWidth;
+    const relX = x - rect.left - (handle.clientWidth / 2);
+    return Math.max(0, Math.min(1, relX / trackWidth));
+  }
+  
+  function update(x) {
+    resetPopupFaderTimeout();
+    const normalized = getValueFromX(x);
+    const minFreq = parseFloat(container.dataset.minFreq);
+    const maxFreq = parseFloat(container.dataset.maxFreq);
+    const freq = normalizedToFreq(normalized, minFreq, maxFreq);
+    
+    updateFreqSliderDisplay(normalized, freq);
+    
+    // Update stored frequency
+    if (gainParam === '4') {
+      currentEqFreqs.loMid = freq;
+    } else if (gainParam === '7') {
+      currentEqFreqs.hiMid = freq;
+    }
+    
+    // Convert frequency to ReaEQ normalized value (20Hz-20kHz log scale)
+    const reaEqNorm = Math.log10(freq / 20) / Math.log10(1000);
+    
+    // Send to Reaper
+    sendFxCommand(trackIdx, parseInt(fxIdx), freqParam, reaEqNorm);
+    const partner = getLinkedPartner(trackIdx);
+    if (partner) sendFxCommand(partner, parseInt(fxIdx), freqParam, reaEqNorm);
+    
+    // Update EQ graph
+    updateEqGraph();
+  }
+  
+  function start(e) {
+    e.preventDefault();
+    update(e.touches ? e.touches[0].clientX : e.clientX);
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', stop);
+    document.addEventListener('touchmove', move, { passive: false });
+    document.addEventListener('touchend', stop);
+  }
+  
+  function move(e) {
+    e.preventDefault();
+    update(e.touches ? e.touches[0].clientX : e.clientX);
+  }
+  
+  function stop() {
+    document.removeEventListener('mousemove', move);
+    document.removeEventListener('mouseup', stop);
+    document.removeEventListener('touchmove', move);
+    document.removeEventListener('touchend', stop);
+  }
+  
+  track.onmousedown = start;
+  track.ontouchstart = start;
 }
 
 // Build layer tabs dynamically
