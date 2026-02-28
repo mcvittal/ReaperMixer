@@ -3012,12 +3012,14 @@ function updateEqGraph() {
     let totalDb = 0;
     
     // HPF response (12dB/oct highpass) - only show if HPF is enabled
+    // Uses proper 2nd-order filter response curve (convex shape)
     const hpfIsEnabled = hpfEnabled[activeFxChannel] !== false && hpfVal > HPF_MIN_THRESHOLD;
-    if (hpfIsEnabled && freq < hpfFreq * 2) {
+    if (hpfIsEnabled && freq < hpfFreq * 4) {
       const ratio = freq / hpfFreq;
-      if (ratio < 1) {
-        totalDb += -24 * (1 - ratio);
-      }
+      // 12dB/octave = 2nd order filter: -20*log10(1 + (fc/f)^2) simplified
+      // Use squared ratio for convex curve shape
+      const attenuation = -24 * Math.pow(1 - Math.min(1, ratio), 2);
+      totalDb += attenuation;
     }
     
     // Each EQ band
