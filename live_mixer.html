@@ -1752,9 +1752,15 @@ function buildOutputChannel(idx, name, color, busType) {
   }
 
   // Setup mute button
-  ch.querySelector(".btn-mute").onclick = () => {
+  const muteBtn = ch.querySelector(".btn-mute");
+  muteBtn.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (busType === "master") {
+      // Toggle master mute - try both methods
       wwr_req(`SET/MASTER/MUTE/-1`);
+      wwr_req(`SET/TRACK/0/MUTE/-1`);
+      muteBtn.classList.toggle('active');
     } else {
       wwr_req(`SET/TRACK/${idx}/MUTE/-1`);
     }
@@ -3367,10 +3373,12 @@ function toggleMuteAll() {
     wwr_req(`SET/TRACK/${t.idx}/MUTE/${allOutputsMuted ? 1 : 0}`);
   });
   
-  // Mute master - send the command
-  const masterMuteVal = allOutputsMuted ? 1 : 0;
-  console.log('Muting master:', masterMuteVal);
-  wwr_req(`SET/MASTER/MUTE/${masterMuteVal}`);
+  // Mute master track - use both methods in case one works
+  console.log('Setting master mute:', allOutputsMuted);
+  // Try MASTER command
+  wwr_req(`SET/MASTER/MUTE/${allOutputsMuted ? 1 : 0}`);
+  // Also try as track index 0
+  wwr_req(`SET/TRACK/0/MUTE/${allOutputsMuted ? 1 : 0}`);
   
   // Also update the master mute button UI if visible
   const masterMuteBtn = document.querySelector('.output-channel[data-bus-type="master"] .btn-mute');
