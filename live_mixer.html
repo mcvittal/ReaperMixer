@@ -1693,6 +1693,7 @@ function buildChannel(idx, name, color, type = "input", inputNum = null) {
       </button>
     </div>
     ` : ""}
+    ${type === "monitor" ? `<button class="fx-btn" onclick="openOutputFxPanel(${idx}, 'monitor', '${name}')">EQ</button>` : ""}
     <div class="fader-section">
       <div class="fader">
         <div class="meter-container">
@@ -2171,6 +2172,35 @@ function openOutputFxPanel(trackIdx, busType, name) {
           </div>
           <div class="fx-param-value">0.0 dB</div>
           <div class="eq-freq">High Shelf</div>
+        </div>
+      </div>
+      <div class="eq-graph-container">
+        <div class="eq-graph" id="eq-graph">
+          <svg viewBox="0 0 300 100" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="eq-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#4a9eff" stop-opacity="0.6"/>
+                <stop offset="100%" stop-color="#4a9eff" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <line class="eq-grid-line" x1="0" y1="25" x2="300" y2="25"/>
+            <line class="eq-grid-line-zero" x1="0" y1="50" x2="300" y2="50"/>
+            <line class="eq-grid-line" x1="0" y1="75" x2="300" y2="75"/>
+            <path class="eq-curve-fill" id="eq-curve-fill"/>
+            <path class="eq-curve" id="eq-curve"/>
+          </svg>
+          <div class="eq-db-labels">
+            <span class="eq-db-label">+12</span>
+            <span class="eq-db-label">0</span>
+            <span class="eq-db-label">-12</span>
+          </div>
+        </div>
+        <div class="eq-freq-labels">
+          <span class="eq-freq-label">20</span>
+          <span class="eq-freq-label">100</span>
+          <span class="eq-freq-label">1k</span>
+          <span class="eq-freq-label">10k</span>
+          <span class="eq-freq-label">20k</span>
         </div>
       </div>
     </div>
@@ -2707,6 +2737,25 @@ function wwr_onreply(data) {
       }
     }
     
+    // Handle SEND responses for reverb levels
+    // Format: SEND trackIdx sendIdx vol pan ...
+    if (tok[0] === "SEND" && tok.length >= 4) {
+      const trackIdxResp = parseInt(tok[1]);
+      const sendIdx = parseInt(tok[2]);
+      const sendVol = parseFloat(tok[3]);
+      
+      // Send 0 is the reverb send
+      if (sendIdx === 0) {
+        // Find the reverb knob for this track
+        const knob = document.querySelector(`.knob.reverb[data-track="${trackIdxResp}"]`);
+        if (knob) {
+          // Convert volume to knob value (sqrt for perceptual scaling)
+          const knobVal = Math.sqrt(sendVol);
+          updateKnob(knob, Math.min(1, knobVal));
+        }
+      }
+    }
+    
     // Handle FX parameter responses  
     // Format: FXPARM trackIdx fxIdx paramIdx value name
     if (tok[0] === "FXPARM" && activeFxChannel !== null) {
@@ -3005,9 +3054,28 @@ function confirmReset(type) {
 function performReset(type) {
   const unityVol = dbToVol(0); // 0 dB = unity
   
-  inputTracks.forEach(t => {
+  // Collect ALL tracks to reset: inputs, monitor buses, reverb, output tracks
+  const allTracks = [...inputTracks];
+  
+  // Add monitor bus tracks
+  Object.values(monitorBuses).forEach(busTracks => {
+    busTracks.forEach(t => allTracks.push(t));
+  });
+  
+  // Add reverb track
+  if (reverbTrackIdx) {
+    allTracks.push({ idx: reverbTrackIdx, type: 'reverb' });
+  }
+  
+  // Add monitor output tracks
+  Object.values(monitorOutputTracks).forEach(t => {
+    allTracks.push({ idx: t.idx, type: 'output' });
+  });
+  
+  allTracks.forEach(t => {
     const trackIdx = t.idx;
     const partner = getLinkedPartner(trackIdx);
+    const isInput = t.type === 'input';
     
     if (type === 'faders' || type === 'all') {
       wwr_req(`SET/TRACK/${trackIdx}/VOL/${unityVol.toFixed(8)}`);
@@ -3015,50 +3083,52 @@ function performReset(type) {
     }
     
     if (type === 'eq' || type === 'all') {
-      // Reset EQ bands to flat (0.5 = 0dB)
+      // Input tracks have EQ at FX slot 2, outputs at slot 0
+      const eqFxIdx = isInput ? 2 : 0;
       [1, 4, 7, 10].forEach(paramIdx => {
-        sendFxCommand(trackIdx, 2, paramIdx, 0.5);
-        if (partner) sendFxCommand(partner, 2, paramIdx, 0.5);
+        sendFxCommand(trackIdx, eqFxIdx, paramIdx, 0.5);
+        if (partner) sendFxCommand(partner, eqFxIdx, paramIdx, 0.5);
       });
-      // Reset HPF to minimum (20Hz)
-      sendFxCommand(trackIdx, 2, 12, 0);
-      if (partner) sendFxCommand(partner, 2, 12, 0);
+      sendFxCommand(trackIdx, eqFxIdx, 12, 0);
+      if (partner) sendFxCommand(partner, eqFxIdx, 12, 0);
     }
     
-    if (type === 'gates' || type === 'all') {
-      // Reset gate: threshold=-60dB (0), attack=6ms (0.006), hold=0 (0), release=20ms (0.02)
-      sendFxCommand(trackIdx, 0, 0, 0);     // Threshold
-      sendFxCommand(trackIdx, 0, 1, 0.006); // Attack
-      sendFxCommand(trackIdx, 0, 4, 0);     // Hold
-      sendFxCommand(trackIdx, 0, 2, 0.02);  // Release
-      if (partner) {
-        sendFxCommand(partner, 0, 0, 0);
-        sendFxCommand(partner, 0, 1, 0.006);
-        sendFxCommand(partner, 0, 4, 0);
-        sendFxCommand(partner, 0, 2, 0.02);
+    // Gate and comp only on input tracks
+    if (isInput) {
+      if (type === 'gates' || type === 'all') {
+        sendFxCommand(trackIdx, 0, 0, 0);
+        sendFxCommand(trackIdx, 0, 1, 0.006);
+        sendFxCommand(trackIdx, 0, 4, 0);
+        sendFxCommand(trackIdx, 0, 2, 0.02);
+        if (partner) {
+          sendFxCommand(partner, 0, 0, 0);
+          sendFxCommand(partner, 0, 1, 0.006);
+          sendFxCommand(partner, 0, 4, 0);
+          sendFxCommand(partner, 0, 2, 0.02);
+        }
       }
-    }
-    
-    if (type === 'comps' || type === 'all') {
-      // Reset comp: threshold=0 (top), ratio=4:1 (0.0303), attack=6ms (0.006), release=20ms (0.02)
-      sendFxCommand(trackIdx, 1, 0, 1);       // Threshold at max (no compression)
-      sendFxCommand(trackIdx, 1, 1, 0.0303);  // Ratio 4:1
-      sendFxCommand(trackIdx, 1, 2, 0.006);   // Attack
-      sendFxCommand(trackIdx, 1, 3, 0.02);    // Release
-      if (partner) {
-        sendFxCommand(partner, 1, 0, 1);
-        sendFxCommand(partner, 1, 1, 0.0303);
-        sendFxCommand(partner, 1, 2, 0.006);
-        sendFxCommand(partner, 1, 3, 0.02);
+      
+      if (type === 'comps' || type === 'all') {
+        sendFxCommand(trackIdx, 1, 0, 1);
+        sendFxCommand(trackIdx, 1, 1, 0.0303);
+        sendFxCommand(trackIdx, 1, 2, 0.006);
+        sendFxCommand(trackIdx, 1, 3, 0.02);
+        if (partner) {
+          sendFxCommand(partner, 1, 0, 1);
+          sendFxCommand(partner, 1, 1, 0.0303);
+          sendFxCommand(partner, 1, 2, 0.006);
+          sendFxCommand(partner, 1, 3, 0.02);
+        }
       }
     }
   });
 }
 
-// Request reverb send levels for all input tracks
+// Request reverb send levels for all input tracks  
 function requestReverbLevels() {
   inputTracks.forEach(t => {
-    wwr_req(`GET/TRACK/${t.idx}/SEND/0/VOL`);
+    // Request send info for each track - Reaper web API format
+    wwr_req(`GET/TRACK/${t.idx}/SEND`);
   });
 }
 
@@ -3066,8 +3136,12 @@ function requestReverbLevels() {
 wwr_req_recur("TRACK", 100);
 wwr_start();
 
-// Request reverb levels periodically
-setInterval(requestReverbLevels, 2000);
+// Poll for reverb levels periodically after tracks are loaded
+setInterval(() => {
+  if (inputTracks.length > 0) {
+    requestReverbLevels();
+  }
+}, 500);
 </script>
 </body>
 </html>
