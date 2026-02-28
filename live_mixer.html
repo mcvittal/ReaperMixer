@@ -729,6 +729,47 @@ body {
   padding: 0 3px;
 }
 
+/* Mini EQ Graph on channel strip */
+.channel-eq-mini {
+  height: 24px;
+  background: #111;
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.channel-eq-mini svg {
+  width: 100%;
+  height: 100%;
+}
+
+.channel-eq-mini .eq-zero-line {
+  stroke: #333;
+  stroke-width: 0.5;
+}
+
+.channel-eq-mini .eq-mini-curve {
+  fill: none;
+  stroke: #4a9eff;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.channel-eq-mini .eq-mini-fill {
+  fill: url(#eq-mini-gradient);
+  opacity: 0.3;
+}
+
+.channel-eq-mini.has-hpf .eq-mini-curve {
+  stroke: #30d158;
+}
+
+.channel-eq-mini.flat .eq-mini-curve {
+  stroke: #444;
+  opacity: 0.5;
+}
+
 /* Input Meter Bridge - small meter at top of channel */
 .input-meter-bridge {
   height: 20px;
@@ -2006,6 +2047,19 @@ function buildChannel(idx, name, color, type = "input", inputNum = null) {
         <span class="gr-label">0</span>
       </div>
     </div>
+    <div class="channel-eq-mini" data-ch-eq="${idx}" onclick="openFxPanel(${idx})">
+      <svg viewBox="0 0 80 24" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="eq-mini-gradient-${idx}" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#4a9eff" stop-opacity="0.4"/>
+            <stop offset="100%" stop-color="#4a9eff" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <line class="eq-zero-line" x1="0" y1="12" x2="80" y2="12"/>
+        <path class="eq-mini-fill" data-eq-fill="${idx}" fill="url(#eq-mini-gradient-${idx})"/>
+        <path class="eq-mini-curve" data-eq-curve="${idx}"/>
+      </svg>
+    </div>
     <div class="pan-section">
       <button class="knob pan" data-param="pan" data-track="${idx}" onclick="openKnobPopup(this)">
         ${createKnobSVG(0.5, "pan")}
@@ -2773,6 +2827,85 @@ const EQ_BAND_FREQ_MAP = {
 // Current frequency values for range limiting
 let currentEqFreqs = { loMid: 500, hiMid: 2500 };
 
+// Store EQ values per track for mini EQ display
+let trackEqValues = {}; // { trackIdx: { hpf, low, loMid, hiMid, high } }
+
+// Update mini EQ curve on channel strip
+function updateMiniEqCurve(trackIdx) {
+  const curvePath = document.querySelector(`[data-eq-curve="${trackIdx}"]`);
+  const fillPath = document.querySelector(`[data-eq-fill="${trackIdx}"]`);
+  if (!curvePath || !fillPath) return;
+  
+  const eq = trackEqValues[trackIdx] || { hpf: 0, low: 0.5, loMid: 0.5, hiMid: 0.5, high: 0.5 };
+  
+  // Check if EQ is flat (all gains at 0.5 and HPF off)
+  const isFlat = Math.abs(eq.low - 0.5) < 0.02 && 
+                 Math.abs(eq.loMid - 0.5) < 0.02 && 
+                 Math.abs(eq.hiMid - 0.5) < 0.02 && 
+                 Math.abs(eq.high - 0.5) < 0.02 &&
+                 eq.hpf < 0.05;
+  
+  const container = curvePath.closest('.channel-eq-mini');
+  if (container) {
+    container.classList.toggle('flat', isFlat);
+    container.classList.toggle('has-hpf', eq.hpf > 0.05);
+  }
+  
+  // Convert to dB
+  const lowDb = (eq.low - 0.5) * 24;
+  const loMidDb = (eq.loMid - 0.5) * 24;
+  const hiMidDb = (eq.hiMid - 0.5) * 24;
+  const highDb = (eq.high - 0.5) * 24;
+  const hpfFreq = 20 * Math.pow(1000, eq.hpf);
+  
+  // Generate simplified curve
+  const width = 80;
+  const height = 24;
+  const points = [];
+  const numPoints = 40;
+  
+  for (let i = 0; i <= numPoints; i++) {
+    const x = (i / numPoints) * width;
+    const freq = 20 * Math.pow(1000, i / numPoints);
+    let totalDb = 0;
+    
+    // HPF
+    if (eq.hpf > 0.05 && freq < hpfFreq * 3) {
+      const ratio = freq / hpfFreq;
+      totalDb += -12 * Math.pow(1 - Math.min(1, ratio), 2);
+    }
+    
+    // Bands
+    const bands = [
+      { freq: 100, db: lowDb },
+      { freq: 500, db: loMidDb },
+      { freq: 2500, db: hiMidDb },
+      { freq: 8000, db: highDb }
+    ];
+    
+    bands.forEach(band => {
+      const oct = Math.log2(freq / band.freq);
+      totalDb += band.db * Math.exp(-Math.pow(oct / 1.2, 2));
+    });
+    
+    totalDb = Math.max(-12, Math.min(12, totalDb));
+    const y = height / 2 - (totalDb / 12) * (height / 2);
+    points.push({ x, y });
+  }
+  
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length; i++) {
+    d += ` L ${points[i].x} ${points[i].y}`;
+  }
+  curvePath.setAttribute('d', d);
+  fillPath.setAttribute('d', d + ` L ${width} ${height} L 0 ${height} Z`);
+}
+
+// Update all mini EQ curves
+function updateAllMiniEqCurves() {
+  inputTracks.forEach(t => updateMiniEqCurve(t.idx));
+}
+
 // Open popup for FX knobs - triggered by button click
 function openFxKnobPopup(knob, trackIdx) {
   const fxIdx = knob.dataset.fxIdx;
@@ -3422,10 +3555,31 @@ setupPopupFaderDrag = function() {
   track.ontouchstart = start;
 };
 
-// Update EQ graph when FX values are received
+// Update EQ graph when FX values are received and store values for mini EQ
 const originalHandleFxValues = handleFxValues;
 handleFxValues = function(data) {
   originalHandleFxValues(data);
+  
+  // Store EQ values for this track for mini EQ display
+  const trackIdx = data.trackIdx;
+  if (!trackEqValues[trackIdx]) {
+    trackEqValues[trackIdx] = { hpf: 0, low: 0.5, loMid: 0.5, hiMid: 0.5, high: 0.5 };
+  }
+  
+  // Extract EQ params from the data (fxIdx 2 for input tracks)
+  (data.params || []).forEach(({ fxIdx, paramIdx, value }) => {
+    if (fxIdx === 2 || fxIdx === 0) { // EQ slot
+      if (paramIdx === 12) trackEqValues[trackIdx].hpf = value;
+      if (paramIdx === 1) trackEqValues[trackIdx].low = value;
+      if (paramIdx === 4) trackEqValues[trackIdx].loMid = value;
+      if (paramIdx === 7) trackEqValues[trackIdx].hiMid = value;
+      if (paramIdx === 10) trackEqValues[trackIdx].high = value;
+    }
+  });
+  
+  // Update mini EQ curve for this track
+  updateMiniEqCurve(trackIdx);
+  
   setTimeout(updateEqGraph, 50);
 };
 
@@ -3887,6 +4041,18 @@ setInterval(() => {
     requestAllSendValues();
   }
 }, 1000);
+
+// Poll for EQ values for all input tracks to populate mini EQ displays
+setInterval(() => {
+  if (inputTracks.length > 0 && oscConnected) {
+    inputTracks.forEach(t => {
+      // Only request if we don't have values yet
+      if (!trackEqValues[t.idx]) {
+        requestFxValues(t.idx);
+      }
+    });
+  }
+}, 2000);
 </script>
 </body>
 </html>
