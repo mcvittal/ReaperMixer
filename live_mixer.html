@@ -653,18 +653,129 @@ body {
   min-height: 120px;
 }
 
+/* Channel GR/Gate Indicator - quick visual on channel strip */
+.channel-dynamics {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+  height: 14px;
+}
+
+.channel-gate-indicator {
+  flex: 1;
+  background: #1a1a1a;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.channel-gate-indicator .gate-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: #30d158;
+  width: 0%;
+  transition: width 0.05s;
+}
+
+.channel-gate-indicator .gate-label {
+  position: relative;
+  z-index: 1;
+  font-size: 7px;
+  font-weight: 700;
+  color: #555;
+  text-transform: uppercase;
+}
+
+.channel-gate-indicator.open .gate-fill {
+  width: 100%;
+}
+
+.channel-gate-indicator.open .gate-label {
+  color: #fff;
+}
+
+.channel-gr-indicator {
+  flex: 1;
+  background: #1a1a1a;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  position: relative;
+  overflow: hidden;
+}
+
+.channel-gr-indicator .gr-fill {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, #ffcc00 0%, #ff9500 100%);
+  width: 0%;
+  transition: width 0.05s;
+}
+
+.channel-gr-indicator .gr-label {
+  position: relative;
+  z-index: 1;
+  font-size: 7px;
+  font-weight: 700;
+  color: #666;
+  padding: 0 3px;
+}
+
+/* Input Meter Bridge - small meter at top of channel */
+.input-meter-bridge {
+  height: 20px;
+  background: #111;
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.input-meter-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #30d158;
+}
+
+.input-meter-fill.level-green { background: #30d158; }
+.input-meter-fill.level-yellow { background: #ffd60a; }
+.input-meter-fill.level-red { background: #ff453a; }
+
+.input-meter-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 8px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Output Meter - single mono bar on fader */
 .meter-container {
   position: absolute;
   bottom: 0;
-  left: 4px;
-  right: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
   top: 0;
-  display: flex;
-  gap: 2px;
 }
 
 .meter {
-  flex: 1;
+  width: 100%;
+  height: 100%;
   background: #1a1a1a;
   border-radius: 2px;
   position: relative;
@@ -1856,6 +1967,10 @@ function buildChannel(idx, name, color, type = "input", inputNum = null) {
     <div class="colorbar" style="background: ${color}"></div>
     <div class="track-name" data-track-num="${trackNum}" onclick="editTrackName(this, '${trackNum}')">${customName}</div>
     ${type === "input" ? `
+    <div class="input-meter-bridge" data-input-meter="${idx}">
+      <div class="input-meter-fill level-green"></div>
+      <span class="input-meter-label">IN</span>
+    </div>
     <div class="link-btn ${linked ? 'active' : ''}" onclick="toggleLink(${idx})" title="Stereo Link">🔗</div>
     <div class="sends-section">
       <div class="send-row">
@@ -1881,6 +1996,16 @@ function buildChannel(idx, name, color, type = "input", inputNum = null) {
       `).join('')}
     </div>
     <button class="fx-btn" onclick="openFxPanel(${idx})">FX</button>
+    <div class="channel-dynamics" data-dynamics="${idx}">
+      <div class="channel-gate-indicator" data-ch-gate="${idx}">
+        <div class="gate-fill"></div>
+        <span class="gate-label">G</span>
+      </div>
+      <div class="channel-gr-indicator" data-ch-gr="${idx}">
+        <div class="gr-fill"></div>
+        <span class="gr-label">0</span>
+      </div>
+    </div>
     <div class="pan-section">
       <button class="knob pan" data-param="pan" data-track="${idx}" onclick="openKnobPopup(this)">
         ${createKnobSVG(0.5, "pan")}
@@ -1892,8 +2017,7 @@ function buildChannel(idx, name, color, type = "input", inputNum = null) {
     <div class="fader-section">
       <div class="fader">
         <div class="meter-container">
-          <div class="meter"><div class="meter-fill" data-meter="l"></div></div>
-          <div class="meter"><div class="meter-fill" data-meter="r"></div></div>
+          <div class="meter"><div class="meter-fill" data-meter="out"></div></div>
         </div>
         <div class="fader-handle" data-fader="${idx}"></div>
       </div>
@@ -2973,10 +3097,24 @@ function wwr_onreply(data) {
         }
         
         // Update meters (peak values from Reaper are in 0.1 dB units)
+        // Input meter bridge shows INPUT level (before fader)
+        const inputMeter = channel.querySelector('.input-meter-fill');
+        if (inputMeter) {
+          const peakDb = peak / 10;
+          updateMeter(inputMeter, peakDb);
+        }
+        
+        // Output meter shows OUTPUT level (single mono bar)
+        const outputMeter = channel.querySelector('[data-meter="out"]');
+        if (outputMeter) {
+          const peakDb = peak / 10;
+          updateMeter(outputMeter, peakDb);
+        }
+        
+        // Fallback for stereo output channels (master, monitor outputs)
         const meterL = channel.querySelector('[data-meter="l"]');
         const meterR = channel.querySelector('[data-meter="r"]');
         if (meterL && meterR) {
-          // Convert peak to dB then to percentage
           const peakDbL = peak / 10;
           const peakDbR = (peakR || peak) / 10;
           updateMeter(meterL, peakDbL);
@@ -3687,37 +3825,55 @@ function updateMeter(meterEl, peakDb) {
   }
 }
 
-// Update GR meter in FX panel
+// Update GR meter in FX panel AND channel strip
 function updateGrMeter(trackIdx, grDb) {
+  // Update FX panel meter
   const container = document.querySelector(`[data-gr-meter="${trackIdx}"]`);
-  if (!container) return;
+  if (container) {
+    const fill = container.querySelector('.gr-meter-fill');
+    const value = container.querySelector('.gr-meter-value');
+    const grPct = Math.min(100, Math.abs(grDb) / 20 * 100);
+    if (fill) fill.style.width = grPct + '%';
+    if (value) value.textContent = grDb.toFixed(1) + ' dB';
+  }
   
-  const fill = container.querySelector('.gr-meter-fill');
-  const value = container.querySelector('.gr-meter-value');
-  
-  // GR is typically 0 to -20dB, map to 0-100%
-  const grPct = Math.min(100, Math.abs(grDb) / 20 * 100);
-  
-  if (fill) fill.style.width = grPct + '%';
-  if (value) value.textContent = grDb.toFixed(1) + ' dB';
+  // Update channel strip GR indicator
+  const chGr = document.querySelector(`[data-ch-gr="${trackIdx}"]`);
+  if (chGr) {
+    const fill = chGr.querySelector('.gr-fill');
+    const label = chGr.querySelector('.gr-label');
+    const grPct = Math.min(100, Math.abs(grDb) / 12 * 100); // Scale to 12dB for compact view
+    if (fill) fill.style.width = grPct + '%';
+    if (label) label.textContent = Math.abs(grDb) < 0.5 ? '0' : Math.abs(grDb).toFixed(0);
+  }
 }
 
-// Update gate meter in FX panel
+// Update gate meter in FX panel AND channel strip
 function updateGateMeter(trackIdx, isOpen, gateLevel) {
+  // Update FX panel meter
   const meter = document.querySelector(`[data-gate-meter="${trackIdx}"]`);
-  if (!meter) return;
+  if (meter) {
+    const fill = meter.querySelector('.gate-meter-fill');
+    const label = meter.querySelector('.gate-meter-label');
+    if (isOpen) {
+      meter.classList.add('open');
+      if (label) label.textContent = 'GATE OPEN';
+      if (fill) fill.style.width = Math.min(100, gateLevel * 100) + '%';
+    } else {
+      meter.classList.remove('open');
+      if (label) label.textContent = 'GATE CLOSED';
+      if (fill) fill.style.width = '0%';
+    }
+  }
   
-  const fill = meter.querySelector('.gate-meter-fill');
-  const label = meter.querySelector('.gate-meter-label');
-  
-  if (isOpen) {
-    meter.classList.add('open');
-    if (label) label.textContent = 'GATE OPEN';
-    if (fill) fill.style.width = Math.min(100, gateLevel * 100) + '%';
-  } else {
-    meter.classList.remove('open');
-    if (label) label.textContent = 'GATE CLOSED';
-    if (fill) fill.style.width = '0%';
+  // Update channel strip gate indicator
+  const chGate = document.querySelector(`[data-ch-gate="${trackIdx}"]`);
+  if (chGate) {
+    if (isOpen) {
+      chGate.classList.add('open');
+    } else {
+      chGate.classList.remove('open');
+    }
   }
 }
 
