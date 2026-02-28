@@ -332,6 +332,11 @@ body {
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
+  background: none;
+  border: none;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .knob svg {
@@ -673,6 +678,11 @@ body {
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
+  background: none;
+  border: none;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .fx-param-knob svg {
@@ -738,38 +748,124 @@ body {
   color: #666;
 }
 
-/* Gate Meter */
+/* Gate Meter - shows gate open/closed status */
 .gate-meter {
-  height: 4px;
-  background: #333;
-  border-radius: 2px;
-  margin-top: 8px;
+  height: 24px;
+  background: #222;
+  border-radius: 6px;
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
   overflow: hidden;
+}
+
+.gate-meter-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #1a1a1a;
+  border-radius: 6px;
 }
 
 .gate-meter-fill {
-  height: 100%;
-  background: #30d158;
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, #30d158 0%, #40e868 100%);
   width: 0%;
-  transition: width 0.05s;
+  transition: width 0.05s ease-out;
+  border-radius: 6px 0 0 6px;
 }
 
-/* Comp GR Meter */
+.gate-meter-label {
+  position: relative;
+  z-index: 1;
+  font-size: 10px;
+  font-weight: 700;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.gate-meter.open .gate-meter-label {
+  color: #fff;
+}
+
+.gate-meter.open .gate-meter-fill {
+  width: 100%;
+}
+
+/* Comp GR Meter - shows gain reduction */
+.gr-meter-container {
+  margin-top: 12px;
+  background: #1a1a1a;
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.gr-meter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.gr-meter-title {
+  font-size: 9px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+}
+
+.gr-meter-value {
+  font-size: 11px;
+  font-weight: 700;
+  color: #ff9500;
+  font-variant-numeric: tabular-nums;
+}
+
 .gr-meter {
-  height: 8px;
+  height: 12px;
   background: #333;
-  border-radius: 2px;
-  margin-top: 8px;
+  border-radius: 4px;
   display: flex;
   justify-content: flex-end;
   overflow: hidden;
+  position: relative;
 }
 
 .gr-meter-fill {
   height: 100%;
-  background: #ff9500;
+  background: linear-gradient(90deg, #ff9500 0%, #ffcc00 100%);
   width: 0%;
-  transition: width 0.05s;
+  transition: width 0.05s ease-out;
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+}
+
+.gr-meter-scale {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 4px;
+  pointer-events: none;
+}
+
+.gr-meter-tick {
+  width: 1px;
+  height: 100%;
+  background: rgba(255,255,255,0.1);
 }
 
 /* Popup Fader for Knobs */
@@ -1282,30 +1378,30 @@ function buildChannel(idx, name, color, type = "input", inputNum = null) {
       <div class="send-row">
         <span class="send-label">RV</span>
         <div class="send-knob-container">
-          <div class="knob reverb" data-param="reverb" data-track="${idx}" data-input-num="${inputNum}">
+          <button class="knob reverb" data-param="reverb" data-track="${idx}" data-input-num="${inputNum}" onclick="openKnobPopup(this)">
             ${createKnobSVG(0, "reverb")}
             <span class="knob-text">0</span>
-          </div>
+          </button>
         </div>
       </div>
       ${monitorPrefixes.map((prefix, i) => `
       <div class="send-row" data-show-layer="foh">
         <span class="send-label">${prefix}</span>
         <div class="send-knob-container">
-          <div class="knob mon${i+1}" data-param="${prefix.toLowerCase()}" data-track="${idx}" data-input-num="${inputNum}">
+          <button class="knob mon${i+1}" data-param="${prefix.toLowerCase()}" data-track="${idx}" data-input-num="${inputNum}" onclick="openKnobPopup(this)">
             ${createKnobSVG(0, `mon${(i % 4) + 1}`)}
             <span class="knob-text">0</span>
-          </div>
+          </button>
         </div>
       </div>
       `).join('')}
     </div>
     <button class="fx-btn" onclick="openFxPanel(${idx})">FX</button>
     <div class="pan-section">
-      <div class="knob pan" data-param="pan" data-track="${idx}">
+      <button class="knob pan" data-param="pan" data-track="${idx}" onclick="openKnobPopup(this)">
         ${createKnobSVG(0.5, "pan")}
         <span class="knob-text">C</span>
-      </div>
+      </button>
     </div>
     ` : ""}
     <div class="fader-section">
@@ -1329,10 +1425,7 @@ function buildChannel(idx, name, color, type = "input", inputNum = null) {
   const faderEl = ch.querySelector(".fader");
   setupFaderDrag(handle, faderEl, idx);
 
-  // Setup knob drags
-  ch.querySelectorAll(".knob").forEach(knob => {
-    setupKnobDrag(knob);
-  });
+  // Knobs are now buttons with onclick - no drag setup needed
 
   // Setup mute/solo buttons
   ch.querySelector(".btn-mute").onclick = () => {
@@ -1399,106 +1492,15 @@ function setupFaderDrag(handle, faderEl, trackIdx) {
   handle.addEventListener("touchstart", start, { passive: false });
 }
 
-// Knob drag handling
-function setupKnobDrag(knob) {
-  let lastY, startY, startValue;
-  let touchStartTime = 0;
-  let totalMove = 0;
-  let tapTimeout = null;
-  
-  function start(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    const y = e.touches ? e.touches[0].clientY : e.clientY;
-    lastY = y;
-    startY = y;
-    startValue = parseFloat(knob.dataset.value) || 0;
-    touchStartTime = Date.now();
-    totalMove = 0;
-    
-    // Clear any pending tap timeout
-    if (tapTimeout) clearTimeout(tapTimeout);
-    
-    knob.classList.add('dragging');
-    
-    document.addEventListener("mousemove", move);
-    document.addEventListener("mouseup", stop);
-    document.addEventListener("touchmove", move, { passive: false });
-    document.addEventListener("touchend", stop);
-  }
-  
-  function move(e) {
-    e.preventDefault();
-    const y = e.touches ? e.touches[0].clientY : e.clientY;
-    const dy = lastY - y;
-    
-    totalMove += Math.abs(dy);
-    
-    lastY = y;
-    
-    // More sensitive: smaller divisor = faster response
-    const currentVal = parseFloat(knob.dataset.value) || 0;
-    let newValue = Math.max(0, Math.min(1, currentVal + (dy * 0.008)));
-    
-    const param = knob.dataset.param;
-    const trackIdx = parseInt(knob.dataset.track);
-    const inputNum = knob.dataset.inputNum;
-    
-    // Update the appropriate send or parameter
-    // Convert 0-1 to volume (use log scale for more natural feel)
-    const vol = newValue * newValue; // Square for better feel
-    
-    if (param === "pan") {
-      // Pan: 0=left, 0.5=center, 1=right
-      const panVal = (newValue - 0.5) * 2; // Convert to -1 to +1
-      wwr_req(`SET/TRACK/${trackIdx}/PAN/${panVal.toFixed(4)}`);
-      
-      // Update knob text
-      let panText = "C";
-      if (newValue < 0.48) panText = Math.round((0.5 - newValue) * 200) + "L";
-      else if (newValue > 0.52) panText = Math.round((newValue - 0.5) * 200) + "R";
-      knob.querySelector(".knob-text").textContent = panText;
-      return;
-    } else if (param === "reverb" && reverbTrackIdx !== null) {
-      wwr_req(`SET/TRACK/${trackIdx}/SEND/0/VOL/${vol.toFixed(4)}`);
-    } else if (param.startsWith("m") && inputToMonitorMap[param.toUpperCase()]) {
-      const monKey = param.toUpperCase();
-      const monIdx = inputToMonitorMap[monKey]?.[inputNum];
-      if (monIdx) {
-        wwr_req(`SET/TRACK/${monIdx}/VOL/${vol.toFixed(4)}`);
-      }
-    }
-    
-    updateKnob(knob, newValue);
-  }
-  
-  function stop(e) {
-    knob.classList.remove('dragging');
-    document.removeEventListener("mousemove", move);
-    document.removeEventListener("mouseup", stop);
-    document.removeEventListener("touchmove", move);
-    document.removeEventListener("touchend", stop);
-    
-    // Open popup fader on tap (quick touch without significant drag)
-    const elapsed = Date.now() - touchStartTime;
-    // More lenient: 50px movement threshold, 600ms time
-    const wasTap = totalMove < 50 && elapsed < 600;
-    
-    console.log('Knob tap check:', { totalMove, elapsed, wasTap });
-    
-    if (wasTap) {
-      const param = knob.dataset.param;
-      const trackIdx = parseInt(knob.dataset.track);
-      const inputNum = knob.dataset.inputNum;
-      const label = param === "pan" ? "Pan" : 
-                    param === "reverb" ? "Reverb" : 
-                    param.toUpperCase();
-      openSendPopupFader(knob, trackIdx, inputNum, param, label);
-    }
-  }
-  
-  knob.addEventListener("mousedown", start);
-  knob.addEventListener("touchstart", start, { passive: false });
+// Open popup for send knobs (reverb, monitors, pan) - triggered by button click
+function openKnobPopup(knob) {
+  const param = knob.dataset.param;
+  const trackIdx = parseInt(knob.dataset.track);
+  const inputNum = knob.dataset.inputNum;
+  const label = param === "pan" ? "Pan" : 
+                param === "reverb" ? "Reverb" : 
+                param.toUpperCase();
+  openSendPopupFader(knob, trackIdx, inputNum, param, label);
 }
 
 // Popup fader for send knobs (reverb, monitors, pan)
@@ -1633,34 +1635,38 @@ function openFxPanel(trackIdx) {
       <div class="fx-params">
         <div class="fx-param">
           <div class="fx-param-label">Thresh</div>
-          <div class="fx-param-knob" data-fx-idx="0" data-param-idx="0">
+          <button class="fx-param-knob" data-fx-idx="0" data-param-idx="0" onclick="openFxKnobPopup(this, ${trackIdx})">
             ${createKnobSVG(0.5)}
-          </div>
+          </button>
           <div class="fx-param-value">-30 dB</div>
         </div>
         <div class="fx-param">
           <div class="fx-param-label">Attack</div>
-          <div class="fx-param-knob" data-fx-idx="0" data-param-idx="1" data-default="0.006">
+          <button class="fx-param-knob" data-fx-idx="0" data-param-idx="1" data-default="0.006" onclick="openFxKnobPopup(this, ${trackIdx})">
             ${createKnobSVG(0.006)}
-          </div>
+          </button>
           <div class="fx-param-value">0.6 ms</div>
         </div>
         <div class="fx-param">
           <div class="fx-param-label">Hold</div>
-          <div class="fx-param-knob" data-fx-idx="0" data-param-idx="4" data-default="0">
+          <button class="fx-param-knob" data-fx-idx="0" data-param-idx="4" data-default="0" onclick="openFxKnobPopup(this, ${trackIdx})">
             ${createKnobSVG(0)}
-          </div>
+          </button>
           <div class="fx-param-value">0 ms</div>
         </div>
         <div class="fx-param">
           <div class="fx-param-label">Release</div>
-          <div class="fx-param-knob" data-fx-idx="0" data-param-idx="2" data-default="0.02">
+          <button class="fx-param-knob" data-fx-idx="0" data-param-idx="2" data-default="0.02" onclick="openFxKnobPopup(this, ${trackIdx})">
             ${createKnobSVG(0.02)}
-          </div>
+          </button>
           <div class="fx-param-value">20 ms</div>
         </div>
       </div>
-      <div class="gate-meter"><div class="gate-meter-fill"></div></div>
+      <div class="gate-meter" data-gate-meter="${trackIdx}">
+        <div class="gate-meter-bg"></div>
+        <div class="gate-meter-fill"></div>
+        <span class="gate-meter-label">GATE CLOSED</span>
+      </div>
     </div>
     
     <!-- Compressor Section -->
@@ -1672,34 +1678,49 @@ function openFxPanel(trackIdx) {
       <div class="fx-params">
         <div class="fx-param">
           <div class="fx-param-label">Thresh</div>
-          <div class="fx-param-knob" data-fx-idx="1" data-param-idx="0">
+          <button class="fx-param-knob" data-fx-idx="1" data-param-idx="0" onclick="openFxKnobPopup(this, ${trackIdx})">
             ${createKnobSVG(0.5)}
-          </div>
+          </button>
           <div class="fx-param-value">-18 dB</div>
         </div>
         <div class="fx-param">
           <div class="fx-param-label">Ratio</div>
-          <div class="fx-param-knob" data-fx-idx="1" data-param-idx="1" data-default="0.0303">
+          <button class="fx-param-knob" data-fx-idx="1" data-param-idx="1" data-default="0.0303" onclick="openFxKnobPopup(this, ${trackIdx})">
             ${createKnobSVG(0.0303)}
-          </div>
+          </button>
           <div class="fx-param-value">4:1</div>
         </div>
         <div class="fx-param">
           <div class="fx-param-label">Attack</div>
-          <div class="fx-param-knob" data-fx-idx="1" data-param-idx="2" data-default="0.006">
+          <button class="fx-param-knob" data-fx-idx="1" data-param-idx="2" data-default="0.006" onclick="openFxKnobPopup(this, ${trackIdx})">
             ${createKnobSVG(0.006)}
-          </div>
+          </button>
           <div class="fx-param-value">0.6 ms</div>
         </div>
         <div class="fx-param">
           <div class="fx-param-label">Release</div>
-          <div class="fx-param-knob" data-fx-idx="1" data-param-idx="3" data-default="0.02">
+          <button class="fx-param-knob" data-fx-idx="1" data-param-idx="3" data-default="0.02" onclick="openFxKnobPopup(this, ${trackIdx})">
             ${createKnobSVG(0.02)}
-          </div>
+          </button>
           <div class="fx-param-value">20 ms</div>
         </div>
       </div>
-      <div class="gr-meter"><div class="gr-meter-fill"></div></div>
+      <div class="gr-meter-container" data-gr-meter="${trackIdx}">
+        <div class="gr-meter-header">
+          <span class="gr-meter-title">Gain Reduction</span>
+          <span class="gr-meter-value">0 dB</span>
+        </div>
+        <div class="gr-meter">
+          <div class="gr-meter-fill"></div>
+          <div class="gr-meter-scale">
+            <div class="gr-meter-tick"></div>
+            <div class="gr-meter-tick"></div>
+            <div class="gr-meter-tick"></div>
+            <div class="gr-meter-tick"></div>
+            <div class="gr-meter-tick"></div>
+          </div>
+        </div>
+      </div>
     </div>
     
     <!-- EQ Section -->
@@ -1711,41 +1732,41 @@ function openFxPanel(trackIdx) {
       <div class="fx-params">
         <div class="fx-param eq-band">
           <div class="fx-param-label">HPF</div>
-          <div class="fx-param-knob" data-fx-idx="2" data-param-idx="12" data-default="0.1414">
+          <button class="fx-param-knob" data-fx-idx="2" data-param-idx="12" data-default="0.1414" onclick="openFxKnobPopup(this, ${trackIdx})">
             ${createKnobSVG(0.1414)}
-          </div>
+          </button>
           <div class="fx-param-value">20 Hz</div>
           <div class="eq-freq">High Pass</div>
         </div>
         <div class="fx-param eq-band">
           <div class="fx-param-label">Low</div>
-          <div class="fx-param-knob" data-fx-idx="2" data-param-idx="1" data-default="0.5">
+          <button class="fx-param-knob" data-fx-idx="2" data-param-idx="1" data-default="0.5" onclick="openFxKnobPopup(this, ${trackIdx})">
             ${createKnobSVG(0.5)}
-          </div>
+          </button>
           <div class="fx-param-value">0.0 dB</div>
           <div class="eq-freq">Low Shelf</div>
         </div>
         <div class="fx-param eq-band">
           <div class="fx-param-label">Lo-Mid</div>
-          <div class="fx-param-knob" data-fx-idx="2" data-param-idx="4" data-default="0.5">
+          <button class="fx-param-knob" data-fx-idx="2" data-param-idx="4" data-default="0.5" onclick="openFxKnobPopup(this, ${trackIdx})">
             ${createKnobSVG(0.5)}
-          </div>
+          </button>
           <div class="fx-param-value">0.0 dB</div>
           <div class="eq-freq">Band 2</div>
         </div>
         <div class="fx-param eq-band">
           <div class="fx-param-label">Hi-Mid</div>
-          <div class="fx-param-knob" data-fx-idx="2" data-param-idx="7" data-default="0.5">
+          <button class="fx-param-knob" data-fx-idx="2" data-param-idx="7" data-default="0.5" onclick="openFxKnobPopup(this, ${trackIdx})">
             ${createKnobSVG(0.5)}
-          </div>
+          </button>
           <div class="fx-param-value">0.0 dB</div>
           <div class="eq-freq">Band 3</div>
         </div>
         <div class="fx-param eq-band">
           <div class="fx-param-label">High</div>
-          <div class="fx-param-knob" data-fx-idx="2" data-param-idx="10" data-default="0.5">
+          <button class="fx-param-knob" data-fx-idx="2" data-param-idx="10" data-default="0.5" onclick="openFxKnobPopup(this, ${trackIdx})">
             ${createKnobSVG(0.5)}
-          </div>
+          </button>
           <div class="fx-param-value">0.0 dB</div>
           <div class="eq-freq">High Shelf</div>
         </div>
@@ -1753,10 +1774,7 @@ function openFxPanel(trackIdx) {
     </div>
   `;
   
-  // Setup FX knob drags
-  content.querySelectorAll(".fx-param-knob").forEach(knob => {
-    setupFxKnobDrag(knob, trackIdx);
-  });
+  // FX knobs are now buttons with onclick - no additional setup needed
   
   // Request FX parameters - poll them along with track data
   // FX params are included in TRACK response when FX is present
@@ -1837,9 +1855,9 @@ function openOutputFxPanel(trackIdx, busType, name) {
     </div>
   `;
   
-  // Setup FX knob drags
+  // FX knobs are now buttons with onclick - just need to add trackIdx attribute
   content.querySelectorAll(".fx-param-knob").forEach(knob => {
-    setupFxKnobDrag(knob, trackIdx);
+    knob.onclick = () => openFxKnobPopup(knob, trackIdx);
   });
   
   document.getElementById("fx-overlay").classList.add("show");
@@ -1986,117 +2004,12 @@ function setupPopupFaderDrag() {
   track.ontouchstart = start;
 }
 
-function setupFxKnobDrag(knob, trackIdx) {
-  let lastY, startValue;
-  let touchStartTime = 0;
-  let totalMove = 0;
-  let tapTimeout = null;
-  
-  function resetToDefault() {
-    const fxIdx = parseInt(knob.dataset.fxIdx);
-    const paramIdx = parseInt(knob.dataset.paramIdx);
-    const defaultVal = parseFloat(knob.dataset.default) || 0.5;
-    
-    knob.dataset.value = defaultVal;
-    knob.innerHTML = createKnobSVG(defaultVal);
-    
-    sendFxCommand(trackIdx, fxIdx, paramIdx, defaultVal);
-    
-    const partner = getLinkedPartner(trackIdx);
-    if (partner) {
-      sendFxCommand(partner, fxIdx, paramIdx, defaultVal);
-    }
-    
-    const paramContainer = knob.closest('.fx-param');
-    const valueDisplay = paramContainer?.querySelector('.fx-param-value');
-    if (valueDisplay) {
-      valueDisplay.textContent = formatFxValue(fxIdx, paramIdx, defaultVal);
-    }
-  }
-  
-  // Double-click to reset to default (desktop)
-  knob.addEventListener("dblclick", (e) => {
-    e.preventDefault();
-    resetToDefault();
-  });
-  
-  function start(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    lastY = e.touches ? e.touches[0].clientY : e.clientY;
-    startValue = parseFloat(knob.dataset.value) || 0.5;
-    touchStartTime = Date.now();
-    totalMove = 0;
-    
-    if (tapTimeout) clearTimeout(tapTimeout);
-    
-    knob.classList.add('dragging');
-    
-    document.addEventListener("mousemove", move);
-    document.addEventListener("mouseup", stop);
-    document.addEventListener("touchmove", move, { passive: false });
-    document.addEventListener("touchend", stop);
-  }
-  
-  function move(e) {
-    e.preventDefault();
-    const y = e.touches ? e.touches[0].clientY : e.clientY;
-    const dy = lastY - y;
-    
-    totalMove += Math.abs(dy);
-    
-    lastY = y;
-    
-    const fxIdx = parseInt(knob.dataset.fxIdx);
-    const paramIdx = parseInt(knob.dataset.paramIdx);
-    
-    // Update local display - more sensitive for touch
-    const currentVal = parseFloat(knob.dataset.value) || 0.5;
-    const newValue = Math.max(0, Math.min(1, currentVal + (dy * 0.008)));
-    knob.dataset.value = newValue;
-    knob.innerHTML = createKnobSVG(newValue);
-    
-    // Send FX command via WebSocket to ReaScript
-    sendFxCommand(trackIdx, fxIdx, paramIdx, newValue);
-    
-    // Also apply to linked channel
-    const partner = getLinkedPartner(trackIdx);
-    if (partner) {
-      sendFxCommand(partner, fxIdx, paramIdx, newValue);
-    }
-    
-    // Update value display
-    const paramContainer = knob.closest('.fx-param');
-    const valueDisplay = paramContainer?.querySelector('.fx-param-value');
-    if (valueDisplay) {
-      valueDisplay.textContent = formatFxValue(fxIdx, paramIdx, newValue);
-    }
-  }
-  
-  function stop(e) {
-    knob.classList.remove('dragging');
-    document.removeEventListener("mousemove", move);
-    document.removeEventListener("mouseup", stop);
-    document.removeEventListener("touchmove", move);
-    document.removeEventListener("touchend", stop);
-    
-    // If it was a quick tap without significant movement, open popup fader
-    const elapsed = Date.now() - touchStartTime;
-    // More lenient: 50px movement threshold, 600ms time
-    const wasTap = totalMove < 50 && elapsed < 600;
-    
-    console.log('FX Knob tap check:', { totalMove, elapsed, wasTap });
-    
-    if (wasTap) {
-      const fxIdx = knob.dataset.fxIdx;
-      const paramIdx = knob.dataset.paramIdx;
-      const label = knob.closest('.fx-param')?.querySelector('.fx-param-label')?.textContent || 'Parameter';
-      openPopupFader(knob, trackIdx, label, fxIdx, paramIdx);
-    }
-  }
-  
-  knob.addEventListener("mousedown", start);
-  knob.addEventListener("touchstart", start, { passive: false });
+// Open popup for FX knobs - triggered by button click
+function openFxKnobPopup(knob, trackIdx) {
+  const fxIdx = knob.dataset.fxIdx;
+  const paramIdx = knob.dataset.paramIdx;
+  const label = knob.closest('.fx-param')?.querySelector('.fx-param-label')?.textContent || 'Parameter';
+  openPopupFader(knob, trackIdx, label, fxIdx, paramIdx);
 }
 
 // Build layer tabs dynamically
