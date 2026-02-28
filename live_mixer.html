@@ -3367,8 +3367,16 @@ function toggleMuteAll() {
     wwr_req(`SET/TRACK/${t.idx}/MUTE/${allOutputsMuted ? 1 : 0}`);
   });
   
-  // Mute master
-  wwr_req(`SET/MASTER/MUTE/${allOutputsMuted ? 1 : 0}`);
+  // Mute master - send the command
+  const masterMuteVal = allOutputsMuted ? 1 : 0;
+  console.log('Muting master:', masterMuteVal);
+  wwr_req(`SET/MASTER/MUTE/${masterMuteVal}`);
+  
+  // Also update the master mute button UI if visible
+  const masterMuteBtn = document.querySelector('.output-channel[data-bus-type="master"] .btn-mute');
+  if (masterMuteBtn) {
+    masterMuteBtn.classList.toggle('active', allOutputsMuted);
+  }
 }
 
 function toggleGlobalFx() {
