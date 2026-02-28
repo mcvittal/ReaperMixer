@@ -1854,15 +1854,8 @@ function setupPopupFaderDrag() {
 
 function setupFxKnobDrag(knob, trackIdx) {
   let lastY, startValue;
-  
-  // Tap to open popup fader (touch-friendly)
-  knob.addEventListener("click", (e) => {
-    e.preventDefault();
-    const fxIdx = knob.dataset.fxIdx;
-    const paramIdx = knob.dataset.paramIdx;
-    const label = knob.closest('.fx-param')?.querySelector('.fx-param-label')?.textContent || 'Parameter';
-    openPopupFader(knob, trackIdx, label, fxIdx, paramIdx);
-  });
+  let touchStartTime = 0;
+  let touchMoved = false;
   
   function resetToDefault() {
     const fxIdx = parseInt(knob.dataset.fxIdx);
@@ -1897,6 +1890,8 @@ function setupFxKnobDrag(knob, trackIdx) {
     e.stopPropagation();
     lastY = e.touches ? e.touches[0].clientY : e.clientY;
     startValue = parseFloat(knob.dataset.value) || 0.5;
+    touchStartTime = Date.now();
+    touchMoved = false;
     knob.classList.add('dragging');
     
     document.addEventListener("mousemove", move);
@@ -1909,6 +1904,10 @@ function setupFxKnobDrag(knob, trackIdx) {
     e.preventDefault();
     const y = e.touches ? e.touches[0].clientY : e.clientY;
     const dy = lastY - y;
+    
+    // Mark as moved if significant movement
+    if (Math.abs(dy) > 3) touchMoved = true;
+    
     lastY = y;
     
     const fxIdx = parseInt(knob.dataset.fxIdx);
@@ -1937,12 +1936,21 @@ function setupFxKnobDrag(knob, trackIdx) {
     }
   }
   
-  function stop() {
+  function stop(e) {
     knob.classList.remove('dragging');
     document.removeEventListener("mousemove", move);
     document.removeEventListener("mouseup", stop);
     document.removeEventListener("touchmove", move);
     document.removeEventListener("touchend", stop);
+    
+    // If it was a quick tap without movement, open popup fader
+    const elapsed = Date.now() - touchStartTime;
+    if (!touchMoved && elapsed < 300) {
+      const fxIdx = knob.dataset.fxIdx;
+      const paramIdx = knob.dataset.paramIdx;
+      const label = knob.closest('.fx-param')?.querySelector('.fx-param-label')?.textContent || 'Parameter';
+      openPopupFader(knob, trackIdx, label, fxIdx, paramIdx);
+    }
   }
   
   knob.addEventListener("mousedown", start);
