@@ -1321,6 +1321,87 @@ body {
   background: #444;
   border-radius: 3px;
 }
+
+/* BG Music Pinned Channel */
+.bg-music-pinned {
+  position: fixed;
+  right: 8px;
+  top: 60px;
+  bottom: 8px;
+  width: 100px;
+  background: linear-gradient(180deg, #2a3a2a 0%, #1e2a1e 100%);
+  border: 2px solid #30d158;
+  border-radius: 12px;
+  padding: 10px 8px;
+  display: none;
+  flex-direction: column;
+  z-index: 50;
+  box-shadow: -4px 0 16px rgba(0,0,0,0.5);
+}
+
+.bg-music-pinned.show {
+  display: flex;
+}
+
+.bg-music-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  color: #30d158;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.bg-music-toggle {
+  width: 100%;
+  padding: 16px 8px;
+  margin-bottom: 10px;
+  border: 2px solid #555;
+  border-radius: 10px;
+  background: #333;
+  color: #888;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+
+.bg-music-toggle.active {
+  background: linear-gradient(135deg, #ffd60a 0%, #ff9500 100%);
+  border-color: #ffd60a;
+  color: #000;
+  box-shadow: 0 0 20px rgba(255, 214, 10, 0.4);
+}
+
+.bg-music-toggle.muted {
+  background: #2a2a2a;
+  border-color: #444;
+  color: #666;
+  opacity: 0.7;
+}
+
+.bg-music-status {
+  font-size: 9px;
+  text-align: center;
+  color: #666;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.bg-music-status.playing {
+  color: #30d158;
+}
+
+.bg-music-status.soloed {
+  color: #ffd60a;
+}
+
+/* Adjust mixer container when BG music is shown */
+body.has-bg-music #mixer-container {
+  padding-right: 116px;
+}
 </style>
 </head>
 
@@ -1397,6 +1478,7 @@ const REVERB_TRACK_NAME = "REVERB";
 const INPUT_PREFIX = "IN/";
 const MON1_PREFIX = "M1/";
 const MON2_PREFIX = "M2/";
+const BG_MUSIC_TRACK_NAME = "BG_MUSIC";
 
 // State
 let currentLayer = "foh";
@@ -1407,6 +1489,8 @@ let monitorBuses = {}; // Dynamic: { "M1": [...], "M2": [...], "M3": [...] }
 let monitorOutputTracks = {}; // { "M1": { idx, name, color }, "M2": ... }
 let reverbTrackIdx = null;
 let masterTrackIdx = null; // Will be 0 for Reaper master
+let bgMusicTrackIdx = null;
+let bgMusicEnabled = false; // true = soloed (playing), false = muted
 let activeFxChannel = null;
 let activeFxType = null; // "input" or "output" - determines FX panel layout
 let initialized = false;
@@ -2705,6 +2789,7 @@ function rebuildTabs() {
       tab.classList.add("active");
       currentLayer = tab.dataset.layer;
       rebuildMixer();
+      updateBgMusicVisibility();
     };
   });
 }
@@ -2791,6 +2876,9 @@ function wwr_onreply(data) {
           inputTracks.push(trackInfo);
           fohTracks.push(trackInfo);
           needsRebuild = true;
+        } else if (name === BG_MUSIC_TRACK_NAME) {
+          bgMusicTrackIdx = idx;
+          needsRebuild = true;
         } else if (name.match(/^MON \d+$/)) {
           // Monitor output bus (e.g., "MON 1", "MON 2")
           const monNum = name.match(/^MON (\d+)$/)[1];
@@ -2823,6 +2911,11 @@ function wwr_onreply(data) {
             needsRebuild = true;
           }
         }
+      }
+      
+      // Update BG Music track
+      if (idx === bgMusicTrackIdx) {
+        updateBgMusicMeter(vol, peak, peakR);
       }
       
       // Update channel strip
@@ -2951,7 +3044,10 @@ function wwr_onreply(data) {
   // Rebuild mixer once after initial track discovery
   if (needsRebuild && !initialized) {
     initialized = true;
-    setTimeout(rebuildMixer, 100);
+    setTimeout(() => {
+      rebuildMixer();
+      buildBgMusicChannel();
+    }, 100);
   }
 }
 
@@ -3407,6 +3503,127 @@ function performReset(type) {
       }
     }
   });
+}
+
+// BG Music Functions
+function buildBgMusicChannel() {
+  if (bgMusicTrackIdx === null) return;
+  
+  // Remove existing if any
+  const existing = document.querySelector('.bg-music-pinned');
+  if (existing) existing.remove();
+  
+  const ch = document.createElement('div');
+  ch.className = 'bg-music-pinned';
+  ch.id = 'bg-music-channel';
+  ch.dataset.trackIdx = bgMusicTrackIdx;
+  
+  ch.innerHTML = `
+    <div class="bg-music-title">🎵 BG MUSIC</div>
+    <button class="bg-music-toggle muted" id="bg-music-toggle" onclick="toggleBgMusic()">
+      MUSIC<br>OFF
+    </button>
+    <div class="bg-music-status" id="bg-music-status">MUTED</div>
+    <div class="fader-section" style="flex:1">
+      <div class="fader">
+        <div class="meter-container">
+          <div class="meter"><div class="meter-fill" data-meter="l"></div></div>
+          <div class="meter"><div class="meter-fill" data-meter="r"></div></div>
+        </div>
+        <div class="fader-handle" data-fader="${bgMusicTrackIdx}"></div>
+      </div>
+      <div class="fader-db" data-db="${bgMusicTrackIdx}">0.0</div>
+    </div>
+  `;
+  
+  document.body.appendChild(ch);
+  
+  // Setup fader drag
+  const handle = ch.querySelector('.fader-handle');
+  const faderEl = ch.querySelector('.fader');
+  setupFaderDrag(handle, faderEl, bgMusicTrackIdx);
+  
+  // Initial state: muted
+  wwr_req(`SET/TRACK/${bgMusicTrackIdx}/MUTE/1`);
+  wwr_req(`SET/TRACK/${bgMusicTrackIdx}/SOLO/0`);
+  
+  updateBgMusicVisibility();
+}
+
+function toggleBgMusic() {
+  if (bgMusicTrackIdx === null) return;
+  
+  bgMusicEnabled = !bgMusicEnabled;
+  
+  const toggle = document.getElementById('bg-music-toggle');
+  const status = document.getElementById('bg-music-status');
+  
+  if (bgMusicEnabled) {
+    // Enable: Solo the BG music (mutes everything else)
+    wwr_req(`SET/TRACK/${bgMusicTrackIdx}/MUTE/0`);
+    wwr_req(`SET/TRACK/${bgMusicTrackIdx}/SOLO/1`);
+    
+    toggle.classList.remove('muted');
+    toggle.classList.add('active');
+    toggle.innerHTML = '🎵 MUSIC<br>ON';
+    status.textContent = 'SOLOED - LIVE MUTED';
+    status.className = 'bg-music-status soloed';
+  } else {
+    // Disable: Unsolo and mute BG music
+    wwr_req(`SET/TRACK/${bgMusicTrackIdx}/SOLO/0`);
+    wwr_req(`SET/TRACK/${bgMusicTrackIdx}/MUTE/1`);
+    
+    toggle.classList.remove('active');
+    toggle.classList.add('muted');
+    toggle.innerHTML = 'MUSIC<br>OFF';
+    status.textContent = 'MUTED';
+    status.className = 'bg-music-status';
+  }
+}
+
+function updateBgMusicVisibility() {
+  const ch = document.getElementById('bg-music-channel');
+  if (!ch) return;
+  
+  // Show only on FOH layer
+  if (currentLayer === 'foh' && bgMusicTrackIdx !== null) {
+    ch.classList.add('show');
+    document.body.classList.add('has-bg-music');
+  } else {
+    ch.classList.remove('show');
+    document.body.classList.remove('has-bg-music');
+  }
+}
+
+// Update BG Music meter when track data comes in
+function updateBgMusicMeter(vol, peak, peakR) {
+  const ch = document.getElementById('bg-music-channel');
+  if (!ch) return;
+  
+  const meterL = ch.querySelector('[data-meter="l"]');
+  const meterR = ch.querySelector('[data-meter="r"]');
+  if (meterL && meterR) {
+    const peakDbL = peak / 10;
+    const peakDbR = (peakR || peak) / 10;
+    const pctL = Math.max(0, Math.min(100, (peakDbL + 60) / 60 * 100));
+    const pctR = Math.max(0, Math.min(100, (peakDbR + 60) / 60 * 100));
+    meterL.style.height = pctL + "%";
+    meterR.style.height = pctR + "%";
+  }
+  
+  // Update fader
+  const db = volToDb(vol);
+  const handle = ch.querySelector('.fader-handle');
+  const faderEl = ch.querySelector('.fader');
+  if (handle && faderEl) {
+    const faderHeight = faderEl.clientHeight - handle.clientHeight;
+    const pct = (db + 60) / 84;
+    const top = faderHeight * (1 - Math.max(0, Math.min(1, pct)));
+    handle.style.top = top + "px";
+  }
+  
+  const dbDisplay = ch.querySelector('.fader-db');
+  if (dbDisplay) dbDisplay.textContent = formatDb(db);
 }
 
 // Start polling
