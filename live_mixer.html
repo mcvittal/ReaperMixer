@@ -210,6 +210,121 @@ body {
 .layer-tab.mon5.active { background: #af52de; }
 .layer-tab.mon6.active { background: #ffcc00; }
 
+/* Header Controls */
+.header-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.header-btn {
+  padding: 8px 12px;
+  background: #333;
+  border: 1px solid #555;
+  border-radius: 6px;
+  color: #aaa;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.header-btn:active {
+  background: #444;
+}
+
+.header-btn.fx-master {
+  color: #30d158;
+  border-color: #30d158;
+}
+
+.header-btn.fx-master.bypassed {
+  color: #ff453a;
+  border-color: #ff453a;
+  background: #3a2a2a;
+}
+
+.header-btn.reset-btn {
+  font-size: 16px;
+  padding: 6px 12px;
+}
+
+/* Reset Menu */
+.reset-menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.8);
+  z-index: 300;
+  display: none;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+.reset-menu-overlay.show {
+  display: flex;
+}
+
+.reset-menu {
+  background: #2a2a2a;
+  border-radius: 16px;
+  padding: 20px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.reset-menu-title {
+  font-size: 18px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #444;
+}
+
+.reset-option {
+  display: block;
+  width: 100%;
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  background: #333;
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.reset-option:active {
+  background: #444;
+}
+
+.reset-option.reset-all {
+  background: #5a2a2a;
+  border-color: #ff453a;
+  color: #ff453a;
+}
+
+.reset-cancel {
+  display: block;
+  width: 100%;
+  padding: 14px 16px;
+  margin-top: 12px;
+  background: transparent;
+  border: 1px solid #666;
+  border-radius: 8px;
+  color: #888;
+  font-size: 14px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.reset-cancel:active {
+  background: #333;
+}
+
 /* Mixer Container */
 #mixer-container {
   display: flex;
@@ -1140,10 +1255,27 @@ body {
 <body>
 <div class="header">
   <div class="title">Live Mixer</div>
+  <div class="header-controls">
+    <button class="header-btn fx-master" id="globalFxBtn" onclick="toggleGlobalFx()" title="Global FX On/Off">FX</button>
+    <button class="header-btn reset-btn" onclick="openResetMenu()" title="Reset Options">↺</button>
+  </div>
   <div class="layer-tabs">
     <button class="layer-tab active" data-layer="foh">FOH</button>
     <button class="layer-tab mon1" data-layer="mon1">MON1</button>
     <button class="layer-tab mon2" data-layer="mon2">MON2</button>
+  </div>
+</div>
+
+<!-- Reset Menu Overlay -->
+<div class="reset-menu-overlay" id="reset-menu-overlay" onclick="closeResetMenu(event)">
+  <div class="reset-menu" onclick="event.stopPropagation()">
+    <div class="reset-menu-title">Reset Options</div>
+    <button class="reset-option" onclick="confirmReset('faders')">🎚️ Reset All Faders to Unity</button>
+    <button class="reset-option" onclick="confirmReset('eq')">📊 Reset All EQs to Flat</button>
+    <button class="reset-option" onclick="confirmReset('gates')">🚧 Reset All Gates to Default</button>
+    <button class="reset-option" onclick="confirmReset('comps')">🔊 Reset All Compressors to Default</button>
+    <button class="reset-option reset-all" onclick="confirmReset('all')">⚠️ Reset Everything</button>
+    <button class="reset-cancel" onclick="closeResetMenu()">Cancel</button>
   </div>
 </div>
 
@@ -1446,7 +1578,6 @@ function buildOutputChannel(idx, name, color, busType) {
     </div>
     <div class="buttons-row">
       <button class="btn btn-mute" data-mute="${idx}">M</button>
-      ${busType === 'master' ? '<button class="btn btn-solo" style="visibility:hidden">S</button>' : ''}
     </div>
   `;
 
@@ -2815,9 +2946,128 @@ handleFxValues = function(data) {
   setTimeout(updateEqGraph, 50);
 };
 
+// Global FX state
+let globalFxBypassed = false;
+
+function toggleGlobalFx() {
+  globalFxBypassed = !globalFxBypassed;
+  const btn = document.getElementById('globalFxBtn');
+  btn.classList.toggle('bypassed', globalFxBypassed);
+  btn.textContent = globalFxBypassed ? 'FX OFF' : 'FX';
+  
+  // Toggle all FX on all input tracks
+  inputTracks.forEach(t => {
+    for (let fxIdx = 0; fxIdx <= 2; fxIdx++) {
+      if (globalFxBypassed) {
+        // Bypass (disable) all FX
+        sendFxCommand(t.idx, fxIdx, -1, globalFxBypassed ? 0 : 1); // Special bypass command
+      }
+    }
+  });
+  
+  // Send bypass command via OSC for all tracks
+  if (oscWs && oscWs.readyState === WebSocket.OPEN) {
+    inputTracks.forEach(t => {
+      oscWs.send(JSON.stringify({
+        type: 'globalFxBypass',
+        trackIdx: t.idx,
+        bypassed: globalFxBypassed
+      }));
+    });
+  }
+}
+
+// Reset Menu Functions
+function openResetMenu() {
+  document.getElementById('reset-menu-overlay').classList.add('show');
+}
+
+function closeResetMenu(e) {
+  if (e && e.target && !e.target.classList.contains('reset-menu-overlay')) return;
+  document.getElementById('reset-menu-overlay').classList.remove('show');
+}
+
+function confirmReset(type) {
+  const messages = {
+    'faders': 'Reset all faders to unity (0 dB)?',
+    'eq': 'Reset all EQs to flat?',
+    'gates': 'Reset all gates to default?',
+    'comps': 'Reset all compressors to default?',
+    'all': 'Reset EVERYTHING to defaults?'
+  };
+  
+  if (confirm(messages[type])) {
+    performReset(type);
+  }
+  closeResetMenu();
+}
+
+function performReset(type) {
+  const unityVol = dbToVol(0); // 0 dB = unity
+  
+  inputTracks.forEach(t => {
+    const trackIdx = t.idx;
+    const partner = getLinkedPartner(trackIdx);
+    
+    if (type === 'faders' || type === 'all') {
+      wwr_req(`SET/TRACK/${trackIdx}/VOL/${unityVol.toFixed(8)}`);
+      if (partner) wwr_req(`SET/TRACK/${partner}/VOL/${unityVol.toFixed(8)}`);
+    }
+    
+    if (type === 'eq' || type === 'all') {
+      // Reset EQ bands to flat (0.5 = 0dB)
+      [1, 4, 7, 10].forEach(paramIdx => {
+        sendFxCommand(trackIdx, 2, paramIdx, 0.5);
+        if (partner) sendFxCommand(partner, 2, paramIdx, 0.5);
+      });
+      // Reset HPF to minimum (20Hz)
+      sendFxCommand(trackIdx, 2, 12, 0);
+      if (partner) sendFxCommand(partner, 2, 12, 0);
+    }
+    
+    if (type === 'gates' || type === 'all') {
+      // Reset gate: threshold=-60dB (0), attack=6ms (0.006), hold=0 (0), release=20ms (0.02)
+      sendFxCommand(trackIdx, 0, 0, 0);     // Threshold
+      sendFxCommand(trackIdx, 0, 1, 0.006); // Attack
+      sendFxCommand(trackIdx, 0, 4, 0);     // Hold
+      sendFxCommand(trackIdx, 0, 2, 0.02);  // Release
+      if (partner) {
+        sendFxCommand(partner, 0, 0, 0);
+        sendFxCommand(partner, 0, 1, 0.006);
+        sendFxCommand(partner, 0, 4, 0);
+        sendFxCommand(partner, 0, 2, 0.02);
+      }
+    }
+    
+    if (type === 'comps' || type === 'all') {
+      // Reset comp: threshold=0 (top), ratio=4:1 (0.0303), attack=6ms (0.006), release=20ms (0.02)
+      sendFxCommand(trackIdx, 1, 0, 1);       // Threshold at max (no compression)
+      sendFxCommand(trackIdx, 1, 1, 0.0303);  // Ratio 4:1
+      sendFxCommand(trackIdx, 1, 2, 0.006);   // Attack
+      sendFxCommand(trackIdx, 1, 3, 0.02);    // Release
+      if (partner) {
+        sendFxCommand(partner, 1, 0, 1);
+        sendFxCommand(partner, 1, 1, 0.0303);
+        sendFxCommand(partner, 1, 2, 0.006);
+        sendFxCommand(partner, 1, 3, 0.02);
+      }
+    }
+  });
+}
+
+// Request reverb send levels for all input tracks
+function requestReverbLevels() {
+  inputTracks.forEach(t => {
+    wwr_req(`GET/TRACK/${t.idx}/SEND/0/VOL`);
+  });
+}
+
 // Start polling
 wwr_req_recur("TRACK", 100);
 wwr_start();
+
+// Request reverb levels periodically
+setInterval(requestReverbLevels, 2000);
 </script>
 </body>
 </html>
