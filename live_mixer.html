@@ -753,6 +753,79 @@ body {
   color: #666;
 }
 
+/* EQ Graph */
+.eq-graph-container {
+  margin-top: 16px;
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.eq-graph {
+  width: 100%;
+  height: 120px;
+  position: relative;
+}
+
+.eq-graph svg {
+  width: 100%;
+  height: 100%;
+}
+
+.eq-grid-line {
+  stroke: #333;
+  stroke-width: 1;
+}
+
+.eq-grid-line-zero {
+  stroke: #444;
+  stroke-width: 1.5;
+}
+
+.eq-curve {
+  fill: none;
+  stroke: #4a9eff;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.eq-curve-fill {
+  fill: url(#eq-gradient);
+  opacity: 0.3;
+}
+
+.eq-freq-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding: 0 4px;
+}
+
+.eq-freq-label {
+  font-size: 8px;
+  color: #555;
+}
+
+.eq-db-labels {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 2px 0;
+  pointer-events: none;
+}
+
+.eq-db-label {
+  font-size: 8px;
+  color: #555;
+  background: #1a1a1a;
+  padding: 0 4px;
+}
+
 /* Gate Meter - shows gate open/closed status */
 .gate-meter {
   height: 24px;
@@ -1776,6 +1849,35 @@ function openFxPanel(trackIdx) {
           <div class="eq-freq">High Shelf</div>
         </div>
       </div>
+      <div class="eq-graph-container">
+        <div class="eq-graph" id="eq-graph">
+          <svg viewBox="0 0 300 100" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="eq-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#4a9eff" stop-opacity="0.6"/>
+                <stop offset="100%" stop-color="#4a9eff" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <line class="eq-grid-line" x1="0" y1="25" x2="300" y2="25"/>
+            <line class="eq-grid-line-zero" x1="0" y1="50" x2="300" y2="50"/>
+            <line class="eq-grid-line" x1="0" y1="75" x2="300" y2="75"/>
+            <path class="eq-curve-fill" id="eq-curve-fill"/>
+            <path class="eq-curve" id="eq-curve"/>
+          </svg>
+          <div class="eq-db-labels">
+            <span class="eq-db-label">+12</span>
+            <span class="eq-db-label">0</span>
+            <span class="eq-db-label">-12</span>
+          </div>
+        </div>
+        <div class="eq-freq-labels">
+          <span class="eq-freq-label">20</span>
+          <span class="eq-freq-label">100</span>
+          <span class="eq-freq-label">1k</span>
+          <span class="eq-freq-label">10k</span>
+          <span class="eq-freq-label">20k</span>
+        </div>
+      </div>
     </div>
   `;
   
@@ -1788,6 +1890,9 @@ function openFxPanel(trackIdx) {
   
   // Request current FX values from Reaper
   requestFxValues(trackIdx);
+  
+  // Initial EQ curve draw
+  setTimeout(updateEqGraph, 100);
 }
 
 function closeFxPanel() {
@@ -2294,6 +2399,183 @@ function requestFxParams(trackIdx) {
     });
   });
 }
+
+// EQ Graph - draw frequency response curve
+function updateEqGraph() {
+  const curvePath = document.getElementById('eq-curve');
+  const fillPath = document.getElementById('eq-curve-fill');
+  if (!curvePath || !fillPath) return;
+  
+  // Get current EQ values from knobs (fxIdx=2 for input EQ, fxIdx=0 for output EQ)
+  const fxIdx = activeFxType === 'output' ? 0 : 2;
+  
+  // Get values: HPF(12), Low(1), LoMid(4), HiMid(7), High(10)
+  const getKnobValue = (paramIdx) => {
+    const knob = document.querySelector(`.fx-param-knob[data-fx-idx="${fxIdx}"][data-param-idx="${paramIdx}"]`);
+    return parseFloat(knob?.dataset?.value) || parseFloat(knob?.dataset?.default) || 0.5;
+  };
+  
+  const hpfVal = getKnobValue(12);
+  const lowVal = getKnobValue(1);
+  const loMidVal = getKnobValue(4);
+  const hiMidVal = getKnobValue(7);
+  const highVal = getKnobValue(10);
+  
+  // Convert normalized values to dB (-24 to +24)
+  const lowDb = (lowVal - 0.5) * 48;
+  const loMidDb = (loMidVal - 0.5) * 48;
+  const hiMidDb = (hiMidVal - 0.5) * 48;
+  const highDb = (highVal - 0.5) * 48;
+  
+  // HPF frequency (20Hz to 20kHz logarithmic)
+  const hpfFreq = 20 * Math.pow(1000, hpfVal);
+  
+  // Fixed center frequencies for bands
+  const bands = [
+    { freq: 100, db: lowDb, q: 0.7, type: 'lowshelf' },
+    { freq: 500, db: loMidDb, q: 1.4 },
+    { freq: 2500, db: hiMidDb, q: 1.4 },
+    { freq: 8000, db: highDb, q: 0.7, type: 'highshelf' }
+  ];
+  
+  // Generate curve points
+  const width = 300;
+  const height = 100;
+  const points = [];
+  const numPoints = 100;
+  
+  for (let i = 0; i <= numPoints; i++) {
+    const x = (i / numPoints) * width;
+    // Log frequency from 20Hz to 20kHz
+    const freq = 20 * Math.pow(1000, i / numPoints);
+    
+    // Calculate combined response at this frequency
+    let totalDb = 0;
+    
+    // HPF response (12dB/oct highpass)
+    if (freq < hpfFreq * 2) {
+      const ratio = freq / hpfFreq;
+      if (ratio < 1) {
+        totalDb += -24 * (1 - ratio);
+      }
+    }
+    
+    // Each EQ band
+    bands.forEach(band => {
+      const octaveDistance = Math.log2(freq / band.freq);
+      let bandResponse = 0;
+      
+      if (band.type === 'lowshelf') {
+        if (freq < band.freq) {
+          bandResponse = band.db;
+        } else {
+          bandResponse = band.db * Math.exp(-Math.abs(octaveDistance) * 1.5);
+        }
+      } else if (band.type === 'highshelf') {
+        if (freq > band.freq) {
+          bandResponse = band.db;
+        } else {
+          bandResponse = band.db * Math.exp(-Math.abs(octaveDistance) * 1.5);
+        }
+      } else {
+        // Parametric band
+        const bandwidth = 1 / band.q;
+        bandResponse = band.db * Math.exp(-Math.pow(octaveDistance / bandwidth, 2));
+      }
+      
+      totalDb += bandResponse;
+    });
+    
+    // Clamp to +/-24dB display range, map to Y
+    totalDb = Math.max(-24, Math.min(24, totalDb));
+    const y = height / 2 - (totalDb / 24) * (height / 2);
+    points.push({ x, y });
+  }
+  
+  // Create SVG path
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length; i++) {
+    d += ` L ${points[i].x} ${points[i].y}`;
+  }
+  curvePath.setAttribute('d', d);
+  
+  // Create fill path (closes to bottom)
+  fillPath.setAttribute('d', d + ` L ${width} ${height} L 0 ${height} Z`);
+}
+
+// Override the popup fader update to also update EQ graph
+const originalSetupPopupFaderDrag = setupPopupFaderDrag;
+setupPopupFaderDrag = function() {
+  const track = document.getElementById("popup-fader-track");
+  const handle = document.getElementById("popup-fader-handle");
+  
+  function getValueFromY(y) {
+    const rect = track.getBoundingClientRect();
+    const trackHeight = track.clientHeight - handle.clientHeight;
+    const relY = y - rect.top - (handle.clientHeight / 2);
+    return 1 - Math.max(0, Math.min(1, relY / trackHeight));
+  }
+  
+  function update(y) {
+    resetPopupFaderTimeout();
+    const value = getValueFromY(y);
+    const fxIdx = document.getElementById("popup-fader-overlay").dataset.fxIdx;
+    const paramIdx = document.getElementById("popup-fader-overlay").dataset.paramIdx;
+    
+    updatePopupFaderDisplay(value, fxIdx, paramIdx);
+    
+    if (popupFaderKnob) {
+      popupFaderKnob.dataset.value = value;
+      popupFaderKnob.innerHTML = createKnobSVG(value);
+      
+      const paramContainer = popupFaderKnob.closest('.fx-param');
+      const valueEl = paramContainer?.querySelector('.fx-param-value');
+      if (valueEl) valueEl.textContent = formatFxValue(parseInt(fxIdx), parseInt(paramIdx), value);
+    }
+    
+    if (popupFaderTrackIdx !== null) {
+      sendFxCommand(popupFaderTrackIdx, parseInt(fxIdx), parseInt(paramIdx), value);
+      const partner = getLinkedPartner(popupFaderTrackIdx);
+      if (partner) sendFxCommand(partner, parseInt(fxIdx), parseInt(paramIdx), value);
+    }
+    
+    // Update EQ graph if this is an EQ param
+    if ((fxIdx === '2' || fxIdx === '0') && [1, 4, 7, 10, 12].includes(parseInt(paramIdx))) {
+      updateEqGraph();
+    }
+  }
+  
+  function start(e) {
+    e.preventDefault();
+    update(e.touches ? e.touches[0].clientY : e.clientY);
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", stop);
+    document.addEventListener("touchmove", move, { passive: false });
+    document.addEventListener("touchend", stop);
+  }
+  
+  function move(e) {
+    e.preventDefault();
+    update(e.touches ? e.touches[0].clientY : e.clientY);
+  }
+  
+  function stop() {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", stop);
+    document.removeEventListener("touchmove", move);
+    document.removeEventListener("touchend", stop);
+  }
+  
+  track.onmousedown = start;
+  track.ontouchstart = start;
+};
+
+// Update EQ graph when FX values are received
+const originalHandleFxValues = handleFxValues;
+handleFxValues = function(data) {
+  originalHandleFxValues(data);
+  setTimeout(updateEqGraph, 50);
+};
 
 // Start polling
 wwr_req_recur("TRACK", 100);
