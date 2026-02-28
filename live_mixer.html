@@ -1,0 +1,1899 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Live Mixer</title>
+<script src="main.js"></script>
+<script>
+// OSC Bridge connection for FX parameter control
+let oscWs = null;
+let oscConnected = false;
+
+function connectOSC() {
+  // Connect to OSC bridge on port 3000
+  const host = window.location.hostname || 'localhost';
+  oscWs = new WebSocket(`ws://${host}:3000/osc`);
+  
+  oscWs.onopen = () => {
+    console.log('OSC bridge connected');
+    oscConnected = true;
+  };
+  
+  oscWs.onclose = () => {
+    console.log('OSC bridge disconnected');
+    oscConnected = false;
+    setTimeout(connectOSC, 3000);
+  };
+  
+  oscWs.onerror = () => {
+    oscConnected = false;
+  };
+  
+  oscWs.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === 'osc') {
+        handleOSCResponse(data.address, data.args);
+      } else if (data.type === 'fxValues') {
+        handleFxValues(data);
+      }
+    } catch(e) {}
+  };
+}
+
+function sendOSC(address, value) {
+  if (oscWs && oscWs.readyState === WebSocket.OPEN) {
+    oscWs.send(JSON.stringify({
+      type: 'osc',
+      address: address,
+      args: [{ type: 'f', value: value }]
+    }));
+    return true;
+  }
+  return false;
+}
+
+function sendFxCommand(trackIdx, fxIdx, paramIdx, value) {
+  if (oscWs && oscWs.readyState === WebSocket.OPEN) {
+    oscWs.send(JSON.stringify({
+      type: 'fx',
+      trackIdx: trackIdx,
+      fxIdx: fxIdx,
+      paramIdx: paramIdx,
+      value: value
+    }));
+    return true;
+  }
+  return false;
+}
+
+function sendFxBypass(trackIdx, fxIdx) {
+  if (oscWs && oscWs.readyState === WebSocket.OPEN) {
+    oscWs.send(JSON.stringify({
+      type: 'fxBypass',
+      trackIdx: trackIdx,
+      fxIdx: fxIdx
+    }));
+    return true;
+  }
+  return false;
+}
+
+function handleOSCResponse(address, args) {
+  // Handle FX param responses: /track/N/fx/M/fxparam/P/value
+  const match = address.match(/\/track\/(\d+)\/fx\/(\d+)\/fxparam\/(\d+)\/value/);
+  if (match && args && args[0]) {
+    const trackIdx = parseInt(match[1]);
+    const fxIdx = parseInt(match[2]);
+    const paramIdx = parseInt(match[3]);
+    const value = args[0].value;
+    
+    if (activeFxChannel === trackIdx) {
+      updateFxKnobFromOSC(fxIdx, paramIdx, value);
+    }
+  }
+}
+
+function handleFxValues(data) {
+  if (data.trackIdx !== activeFxChannel) return;
+  
+  // Update bypass buttons
+  Object.entries(data.bypassed || {}).forEach(([fxIdx, bypassed]) => {
+    const btn = document.querySelector(`.fx-bypass[data-fx-idx="${fxIdx}"]`);
+    if (btn) {
+      btn.classList.toggle('bypassed', bypassed);
+      btn.textContent = bypassed ? 'OFF' : 'ON';
+    }
+  });
+  
+  // Update param knobs
+  (data.params || []).forEach(({ fxIdx, paramIdx, value }) => {
+    const knob = document.querySelector(`.fx-param-knob[data-fx-idx="${fxIdx}"][data-param-idx="${paramIdx}"]`);
+    if (knob) {
+      knob.dataset.value = value;
+      knob.innerHTML = createKnobSVG(value);
+      
+      const paramContainer = knob.closest('.fx-param');
+      const valueDisplay = paramContainer?.querySelector('.fx-param-value');
+      if (valueDisplay) {
+        valueDisplay.textContent = formatFxValue(fxIdx, paramIdx, value);
+      }
+    }
+  });
+}
+
+function requestFxValues(trackIdx) {
+  if (oscWs && oscWs.readyState === WebSocket.OPEN) {
+    oscWs.send(JSON.stringify({
+      type: 'fxRead',
+      trackIdx: trackIdx
+    }));
+  }
+}
+
+function updateFxKnobFromOSC(fxIdx, paramIdx, value) {
+  const knob = document.querySelector(`.fx-param-knob[data-fx-idx="${fxIdx}"][data-param-idx="${paramIdx}"]`);
+  if (knob) {
+    knob.dataset.value = value;
+    knob.innerHTML = createKnobSVG(value);
+    const paramContainer = knob.closest('.fx-param');
+    const valueDisplay = paramContainer?.querySelector('.fx-param-value');
+    if (valueDisplay) {
+      valueDisplay.textContent = formatFxValue(fxIdx, paramIdx, value);
+    }
+  }
+}
+
+// Connect on load
+connectOSC();
+</script>
+
+<style>
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: #1a1a1a;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  height: 100vh;
+  user-select: none;
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #0d0d0d;
+  border-bottom: 1px solid #333;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.layer-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.layer-tab {
+  padding: 8px 16px;
+  background: #333;
+  border: none;
+  border-radius: 6px;
+  color: #aaa;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.layer-tab.active {
+  background: #4a9eff;
+  color: #fff;
+}
+
+.layer-tab.mon1.active { background: #ff9500; }
+.layer-tab.mon2.active { background: #30d158; }
+.layer-tab.mon3.active { background: #5ac8fa; }
+.layer-tab.mon4.active { background: #ff2d55; }
+.layer-tab.mon5.active { background: #af52de; }
+.layer-tab.mon6.active { background: #ffcc00; }
+
+/* Mixer Container */
+#mixer-container {
+  display: flex;
+  height: calc(100vh - 52px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 8px;
+  gap: 6px;
+  scroll-snap-type: x proximity;
+}
+
+/* Channel Strip */
+.channel {
+  background: linear-gradient(180deg, #2a2a2a 0%, #1e1e1e 100%);
+  border-radius: 10px;
+  width: 80px;
+  min-width: 80px;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  border: 1px solid #3a3a3a;
+}
+
+.channel.master {
+  background: linear-gradient(180deg, #3a2a2a 0%, #2a1a1a 100%);
+  border-color: #5a3a3a;
+}
+
+.colorbar {
+  height: 4px;
+  border-radius: 2px;
+  margin-bottom: 4px;
+}
+
+.track-name {
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 6px;
+  height: 24px;
+  line-height: 12px;
+  overflow: hidden;
+  color: #ddd;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.track-name:hover {
+  background: #3a3a3a;
+}
+
+.track-name-input {
+  width: 100%;
+  background: #444;
+  border: 1px solid #4a9eff;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+  padding: 2px;
+  outline: none;
+}
+
+/* Sends Section */
+.sends-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.send-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.send-label {
+  font-size: 8px;
+  color: #888;
+  width: 20px;
+}
+
+.send-knob-container {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+}
+
+.knob {
+  width: 32px;
+  height: 32px;
+  position: relative;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.knob svg {
+  width: 100%;
+  height: 100%;
+}
+
+.knob-track {
+  fill: none;
+  stroke: #444;
+  stroke-width: 4;
+}
+
+.knob-value {
+  fill: none;
+  stroke: #4a9eff;
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.05s;
+}
+
+.knob.reverb .knob-value { stroke: #bf5af2; }
+.knob.mon1 .knob-value { stroke: #ff9500; }
+.knob.mon2 .knob-value { stroke: #30d158; }
+.knob.mon3 .knob-value { stroke: #5ac8fa; }
+.knob.mon4 .knob-value { stroke: #ff2d55; }
+.knob.pan .knob-value { stroke: #888; }
+
+.pan-section {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.knob-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 8px;
+  color: #aaa;
+}
+
+/* Link Button */
+.link-btn {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #666;
+  font-size: 10px;
+  padding: 4px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.link-btn:active, .link-btn.active {
+  background: #4a9eff;
+  color: #fff;
+  border-color: #4a9eff;
+}
+
+.channel.linked {
+  border-color: #4a9eff;
+}
+
+/* FX Button */
+.fx-btn {
+  background: #333;
+  border: 1px solid #555;
+  border-radius: 6px;
+  color: #aaa;
+  font-size: 10px;
+  padding: 6px 4px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.fx-btn:active {
+  background: #444;
+}
+
+.fx-btn.has-processing {
+  color: #4a9eff;
+  border-color: #4a9eff;
+}
+
+/* Fader Section */
+.fader-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.fader {
+  position: relative;
+  flex: 1;
+  background: #111;
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 120px;
+}
+
+.meter-container {
+  position: absolute;
+  bottom: 0;
+  left: 4px;
+  right: 4px;
+  top: 0;
+  display: flex;
+  gap: 2px;
+}
+
+.meter {
+  flex: 1;
+  background: #1a1a1a;
+  border-radius: 2px;
+  position: relative;
+  overflow: hidden;
+}
+
+.meter-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, 
+    #30d158 0%, 
+    #30d158 60%, 
+    #ffd60a 75%, 
+    #ff453a 95%
+  );
+  transition: height 0.05s;
+}
+
+.fader-handle {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  height: 28px;
+  background: linear-gradient(180deg, #666 0%, #444 50%, #333 100%);
+  border-radius: 4px;
+  border: 1px solid #888;
+  touch-action: none;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fader-handle::after {
+  content: '';
+  width: 60%;
+  height: 2px;
+  background: #aaa;
+  border-radius: 1px;
+}
+
+.fader-db {
+  text-align: center;
+  font-size: 10px;
+  color: #888;
+  padding: 4px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Buttons Row */
+.buttons-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.btn {
+  flex: 1;
+  padding: 8px 4px;
+  border: none;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-mute {
+  background: #333;
+  color: #888;
+}
+
+.btn-mute.active {
+  background: #ff453a;
+  color: #fff;
+}
+
+.btn-solo {
+  background: #333;
+  color: #888;
+}
+
+.btn-solo.active {
+  background: #ffd60a;
+  color: #000;
+}
+
+/* FX Panel Overlay */
+.fx-panel-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.8);
+  z-index: 100;
+  display: none;
+  justify-content: center;
+  align-items: flex-end;
+  padding: 20px;
+}
+
+.fx-panel-overlay.show {
+  display: flex;
+}
+
+.fx-panel {
+  background: #2a2a2a;
+  border-radius: 16px 16px 0 0;
+  width: 100%;
+  max-width: 600px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.fx-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #444;
+}
+
+.fx-panel-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.fx-panel-close {
+  background: #444;
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.fx-section {
+  background: #222;
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.fx-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.fx-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ddd;
+}
+
+.fx-bypass {
+  padding: 6px 12px;
+  background: #30d158;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fx-bypass.bypassed {
+  background: #666;
+  color: #aaa;
+}
+
+.fx-params {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 12px;
+}
+
+.fx-param {
+  text-align: center;
+}
+
+.fx-param-label {
+  font-size: 9px;
+  color: #888;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.fx-param-knob {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 4px;
+  position: relative;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.fx-param-knob svg {
+  width: 100%;
+  height: 100%;
+}
+
+.fx-param-knob .knob-track {
+  stroke-width: 5;
+}
+
+.fx-param-knob .knob-value {
+  stroke-width: 5;
+}
+
+.fx-param-value {
+  font-size: 10px;
+  color: #aaa;
+  font-variant-numeric: tabular-nums;
+}
+
+/* EQ Specific */
+.eq-band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.eq-freq {
+  font-size: 9px;
+  color: #666;
+}
+
+/* Gate Meter */
+.gate-meter {
+  height: 4px;
+  background: #333;
+  border-radius: 2px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.gate-meter-fill {
+  height: 100%;
+  background: #30d158;
+  width: 0%;
+  transition: width 0.05s;
+}
+
+/* Comp GR Meter */
+.gr-meter {
+  height: 8px;
+  background: #333;
+  border-radius: 2px;
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.gr-meter-fill {
+  height: 100%;
+  background: #ff9500;
+  width: 0%;
+  transition: width 0.05s;
+}
+
+/* Scrollbar */
+#mixer-container::-webkit-scrollbar {
+  height: 6px;
+}
+
+#mixer-container::-webkit-scrollbar-track {
+  background: #111;
+}
+
+#mixer-container::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 3px;
+}
+</style>
+</head>
+
+<body>
+<div class="header">
+  <div class="title">Live Mixer</div>
+  <div class="layer-tabs">
+    <button class="layer-tab active" data-layer="foh">FOH</button>
+    <button class="layer-tab mon1" data-layer="mon1">MON1</button>
+    <button class="layer-tab mon2" data-layer="mon2">MON2</button>
+  </div>
+</div>
+
+<div id="mixer-container"></div>
+
+<div class="fx-panel-overlay" id="fx-overlay">
+  <div class="fx-panel">
+    <div class="fx-panel-header">
+      <div class="fx-panel-title" id="fx-panel-title">Channel FX</div>
+      <button class="fx-panel-close" onclick="closeFxPanel()">×</button>
+    </div>
+    <div id="fx-panel-content"></div>
+  </div>
+</div>
+
+<script>
+// Configuration
+const REVERB_TRACK_NAME = "REVERB";
+const INPUT_PREFIX = "IN/";
+const MON1_PREFIX = "M1/";
+const MON2_PREFIX = "M2/";
+
+// State
+let currentLayer = "foh";
+let tracks = {};
+let inputTracks = [];
+let fohTracks = []; // Includes inputs + reverb
+let monitorBuses = {}; // Dynamic: { "M1": [...], "M2": [...], "M3": [...] }
+let monitorOutputTracks = {}; // { "M1": { idx, name, color }, "M2": ... }
+let reverbTrackIdx = null;
+let masterTrackIdx = null; // Will be 0 for Reaper master
+let activeFxChannel = null;
+let activeFxType = null; // "input" or "output" - determines FX panel layout
+let initialized = false;
+
+// Map input numbers to monitor track indices for each bus
+let inputToMonitorMap = {}; // { "M1": { "1": idx, "2": idx }, "M2": {...} }
+
+// Stereo link groups: array of arrays of track indices
+let linkedGroups = [];
+
+// Discovered monitor prefixes (for dynamic tabs)
+let monitorPrefixes = [];
+
+// Custom track names (stored locally, keyed by input number)
+let customNames = {};
+
+// Load custom names from localStorage
+try {
+  const saved = localStorage.getItem('mixerCustomNames');
+  if (saved) customNames = JSON.parse(saved);
+} catch(e) {}
+
+// Edit track name
+function editTrackName(el, trackNum) {
+  if (!trackNum || trackNum === "REV" || trackNum === "VERB") return;
+  
+  const currentName = customNames[trackNum] || trackNum;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "track-name-input";
+  input.value = currentName;
+  input.maxLength = 12;
+  
+  el.innerHTML = "";
+  el.appendChild(input);
+  input.focus();
+  input.select();
+  
+  function save() {
+    const newName = input.value.trim() || trackNum;
+    customNames[trackNum] = newName;
+    localStorage.setItem('mixerCustomNames', JSON.stringify(customNames));
+    
+    // Update all displays of this track
+    document.querySelectorAll(`.track-name[data-track-num="${trackNum}"]`).forEach(nameEl => {
+      nameEl.textContent = newName;
+    });
+  }
+  
+  input.onblur = save;
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      input.blur();
+    } else if (e.key === "Escape") {
+      input.value = currentName;
+      input.blur();
+    }
+  };
+}
+
+// FX Parameter definitions for ReaPlugs
+const FX_DEFS = {
+  gate: {
+    name: "Gate",
+    fxIndex: 0,
+    params: [
+      { name: "Threshold", idx: 0, min: -60, max: 0, unit: "dB" },
+      { name: "Attack", idx: 4, min: 0, max: 100, unit: "ms" },
+      { name: "Hold", idx: 5, min: 0, max: 500, unit: "ms" },
+      { name: "Release", idx: 6, min: 0, max: 1000, unit: "ms" }
+    ]
+  },
+  comp: {
+    name: "Compressor",
+    fxIndex: 1,
+    params: [
+      { name: "Threshold", idx: 0, min: -60, max: 0, unit: "dB" },
+      { name: "Ratio", idx: 3, min: 1, max: 20, unit: ":1" },
+      { name: "Attack", idx: 4, min: 0, max: 100, unit: "ms" },
+      { name: "Release", idx: 5, min: 0, max: 1000, unit: "ms" }
+    ]
+  },
+  eq: {
+    name: "EQ",
+    fxIndex: 2,
+    bands: [
+      { name: "Low", freqIdx: 1, gainIdx: 2, type: "shelf" },
+      { name: "Lo-Mid", freqIdx: 5, gainIdx: 6 },
+      { name: "Hi-Mid", freqIdx: 9, gainIdx: 10 },
+      { name: "High", freqIdx: 13, gainIdx: 14, type: "shelf" }
+    ]
+  }
+};
+
+// Utility functions
+function volToDb(vol) {
+  if (vol < 0.0000001) return -Infinity;
+  return Math.log(vol) * 8.68588963806;
+}
+
+function dbToVol(db) {
+  if (db <= -60) return 0;
+  return Math.exp(db / 8.68588963806);
+}
+
+function formatDb(db) {
+  if (db <= -60) return "-∞";
+  return db.toFixed(1);
+}
+
+// Format FX parameter value for display
+function formatFxValue(fxIdx, paramIdx, value) {
+  // Gate (FX 0) - ReaGate
+  if (fxIdx === 0) {
+    if (paramIdx === 0) return ((value * 120) - 60).toFixed(0) + " dB"; // Threshold (-60 to +60)
+    if (paramIdx === 1) return (value * 1000).toFixed(1) + " ms"; // Attack (0-1000ms)
+    if (paramIdx === 2) return (value * 1000).toFixed(0) + " ms"; // Release (0-1000ms)
+    if (paramIdx === 4) return (value * 1000).toFixed(0) + " ms"; // Hold (0-1000ms)
+  }
+  // Compressor (FX 1) - ReaComp
+  if (fxIdx === 1) {
+    if (paramIdx === 0) return ((value * 120) - 60).toFixed(0) + " dB"; // Threshold
+    if (paramIdx === 1) { // Ratio (logarithmic 1:1 to 100:1)
+      const ratio = Math.pow(100, value);
+      return ratio < 10 ? ratio.toFixed(1) + ":1" : ratio.toFixed(0) + ":1";
+    }
+    if (paramIdx === 2) return (value * 1000).toFixed(1) + " ms"; // Attack
+    if (paramIdx === 3) return (value * 1000).toFixed(0) + " ms"; // Release
+  }
+  // EQ (FX 2) - ReaEQ
+  if (fxIdx === 2) {
+    // HPF frequency (param 12) - logarithmic frequency scale
+    if (paramIdx === 12) {
+      const freq = 20 * Math.pow(1000, value); // 20Hz to 20kHz
+      return freq < 1000 ? freq.toFixed(0) + " Hz" : (freq/1000).toFixed(1) + " kHz";
+    }
+    // Gain params (1, 4, 7, 10)
+    if ([1, 4, 7, 10].includes(paramIdx)) {
+      return ((value - 0.5) * 48).toFixed(1) + " dB"; // ReaEQ is ±24dB range
+    }
+  }
+  return (value * 100).toFixed(0) + "%";
+}
+
+function colorFromReaper(col) {
+  if (!col || col === "0") return "#666";
+  let v = parseInt(col) >>> 0;
+  let r = (v >> 16) & 0xFF;
+  let g = (v >> 8) & 0xFF;
+  let b = v & 0xFF;
+  return `rgb(${r},${g},${b})`;
+}
+
+// Knob SVG generation
+function createKnobSVG(value, className = "") {
+  const radius = 12;
+  const circumference = 2 * Math.PI * radius;
+  const startAngle = 135;
+  const endAngle = 405;
+  const range = endAngle - startAngle;
+  const valueAngle = startAngle + (value * range);
+  const dashOffset = circumference * (1 - value * 0.75);
+  
+  return `
+    <svg viewBox="0 0 32 32">
+      <circle class="knob-track" cx="16" cy="16" r="${radius}" 
+        stroke-dasharray="${circumference * 0.75} ${circumference}"
+        stroke-dashoffset="0"
+        transform="rotate(${startAngle} 16 16)"/>
+      <circle class="knob-value ${className}" cx="16" cy="16" r="${radius}"
+        stroke-dasharray="${circumference * 0.75} ${circumference}"
+        stroke-dashoffset="${circumference * 0.75 * (1 - value)}"
+        transform="rotate(${startAngle} 16 16)"/>
+    </svg>
+  `;
+}
+
+// Check if channel is linked
+function isLinked(trackIdx) {
+  return linkedGroups.some(group => group.includes(trackIdx));
+}
+
+// Get linked partner
+function getLinkedPartner(trackIdx) {
+  for (const group of linkedGroups) {
+    if (group.includes(trackIdx)) {
+      return group.find(t => t !== trackIdx);
+    }
+  }
+  return null;
+}
+
+// Toggle stereo link for a channel
+function toggleLink(trackIdx) {
+  // Find this track in inputTracks
+  const trackInfo = inputTracks.find(t => t.idx === trackIdx);
+  if (!trackInfo) return;
+  
+  // Find adjacent track
+  const currentNum = parseInt(trackInfo.inputNum);
+  const isEven = currentNum % 2 === 0;
+  const partnerNum = isEven ? currentNum - 1 : currentNum + 1;
+  const partnerInfo = inputTracks.find(t => t.inputNum === String(partnerNum));
+  
+  if (!partnerInfo) return;
+  
+  // Check if already linked
+  const existingGroupIdx = linkedGroups.findIndex(g => g.includes(trackIdx));
+  
+  if (existingGroupIdx >= 0) {
+    // Unlink
+    linkedGroups.splice(existingGroupIdx, 1);
+  } else {
+    // Link
+    linkedGroups.push([trackIdx, partnerInfo.idx]);
+  }
+  
+  rebuildMixer();
+}
+
+// Build output channel strip (master or monitor output)
+function buildOutputChannel(idx, name, color, busType) {
+  const ch = document.createElement("div");
+  ch.className = "channel output-channel";
+  ch.dataset.trackIdx = idx;
+  ch.dataset.type = "output";
+  ch.dataset.busType = busType;
+
+  const displayName = busType === "master" ? "🔊 MAIN" : `📢 ${name}`;
+
+  ch.innerHTML = `
+    <div class="colorbar" style="background: ${busType === 'master' ? '#ff453a' : '#30d158'}"></div>
+    <div class="track-name output-name">${displayName}</div>
+    <button class="fx-btn output-fx" onclick="openOutputFxPanel(${idx}, '${busType}', '${name}')">EQ</button>
+    <div class="fader-section">
+      <div class="fader">
+        <div class="meter-container">
+          <div class="meter"><div class="meter-fill" data-meter="l"></div></div>
+          <div class="meter"><div class="meter-fill" data-meter="r"></div></div>
+        </div>
+        <div class="fader-handle" data-fader="${idx}"></div>
+      </div>
+      <div class="fader-db" data-db="${idx}">0.0</div>
+    </div>
+    <div class="buttons-row">
+      <button class="btn btn-mute" data-mute="${idx}">M</button>
+      ${busType === 'master' ? '<button class="btn btn-solo" style="visibility:hidden">S</button>' : ''}
+    </div>
+  `;
+
+  // Setup fader drag
+  const handle = ch.querySelector(".fader-handle");
+  const faderEl = ch.querySelector(".fader");
+  
+  if (busType === "master") {
+    setupMasterFaderDrag(handle, faderEl);
+  } else {
+    setupFaderDrag(handle, faderEl, idx);
+  }
+
+  // Setup mute button
+  ch.querySelector(".btn-mute").onclick = () => {
+    if (busType === "master") {
+      wwr_req(`SET/MASTER/MUTE/-1`);
+    } else {
+      wwr_req(`SET/TRACK/${idx}/MUTE/-1`);
+    }
+  };
+
+  return ch;
+}
+
+// Master fader drag
+function setupMasterFaderDrag(handle, faderEl) {
+  let startY, startTop;
+  
+  function start(e) {
+    e.preventDefault();
+    startY = e.touches ? e.touches[0].clientY : e.clientY;
+    startTop = parseInt(handle.style.top) || 0;
+    
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", stop);
+    document.addEventListener("touchmove", move, { passive: false });
+    document.addEventListener("touchend", stop);
+  }
+  
+  function move(e) {
+    e.preventDefault();
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    const faderHeight = faderEl.clientHeight - handle.clientHeight;
+    let newTop = startTop + (y - startY);
+    newTop = Math.max(0, Math.min(faderHeight, newTop));
+    
+    const pct = 1 - (newTop / faderHeight);
+    const db = (pct * 84) - 60;
+    const vol = dbToVol(db);
+    
+    wwr_req(`SET/MASTER/VOL/${vol.toFixed(8)}`);
+  }
+  
+  function stop() {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", stop);
+    document.removeEventListener("touchmove", move);
+    document.removeEventListener("touchend", stop);
+  }
+  
+  handle.addEventListener("mousedown", start);
+  handle.addEventListener("touchstart", start, { passive: false });
+}
+
+// Build channel strip
+function buildChannel(idx, name, color, type = "input", inputNum = null) {
+  const ch = document.createElement("div");
+  ch.className = "channel";
+  ch.dataset.trackIdx = idx;
+  ch.dataset.type = type;
+  if (inputNum) ch.dataset.inputNum = inputNum;
+  
+  const linked = isLinked(idx);
+  if (linked) ch.classList.add("linked");
+
+  // Get custom name or default
+  const trackNum = inputNum || "";
+  const customName = customNames[trackNum] || name.replace(/^(IN|M\d+)\//, "").replace("VERB", "🔊 Reverb");
+
+  ch.innerHTML = `
+    <div class="colorbar" style="background: ${color}"></div>
+    <div class="track-name" data-track-num="${trackNum}" onclick="editTrackName(this, '${trackNum}')">${customName}</div>
+    ${type === "input" ? `
+    <div class="link-btn ${linked ? 'active' : ''}" onclick="toggleLink(${idx})" title="Stereo Link">🔗</div>
+    <div class="sends-section">
+      <div class="send-row">
+        <span class="send-label">RV</span>
+        <div class="send-knob-container">
+          <div class="knob reverb" data-param="reverb" data-track="${idx}" data-input-num="${inputNum}">
+            ${createKnobSVG(0, "reverb")}
+            <span class="knob-text">0</span>
+          </div>
+        </div>
+      </div>
+      ${monitorPrefixes.map((prefix, i) => `
+      <div class="send-row" data-show-layer="foh">
+        <span class="send-label">${prefix}</span>
+        <div class="send-knob-container">
+          <div class="knob mon${i+1}" data-param="${prefix.toLowerCase()}" data-track="${idx}" data-input-num="${inputNum}">
+            ${createKnobSVG(0, `mon${(i % 4) + 1}`)}
+            <span class="knob-text">0</span>
+          </div>
+        </div>
+      </div>
+      `).join('')}
+    </div>
+    <button class="fx-btn" onclick="openFxPanel(${idx})">FX</button>
+    <div class="pan-section">
+      <div class="knob pan" data-param="pan" data-track="${idx}">
+        ${createKnobSVG(0.5, "pan")}
+        <span class="knob-text">C</span>
+      </div>
+    </div>
+    ` : ""}
+    <div class="fader-section">
+      <div class="fader">
+        <div class="meter-container">
+          <div class="meter"><div class="meter-fill" data-meter="l"></div></div>
+          <div class="meter"><div class="meter-fill" data-meter="r"></div></div>
+        </div>
+        <div class="fader-handle" data-fader="${idx}"></div>
+      </div>
+      <div class="fader-db" data-db="${idx}">0.0</div>
+    </div>
+    <div class="buttons-row">
+      <button class="btn btn-mute" data-mute="${idx}">M</button>
+      <button class="btn btn-solo" data-solo="${idx}">S</button>
+    </div>
+  `;
+
+  // Setup fader drag
+  const handle = ch.querySelector(".fader-handle");
+  const faderEl = ch.querySelector(".fader");
+  setupFaderDrag(handle, faderEl, idx);
+
+  // Setup knob drags
+  ch.querySelectorAll(".knob").forEach(knob => {
+    setupKnobDrag(knob);
+  });
+
+  // Setup mute/solo buttons
+  ch.querySelector(".btn-mute").onclick = () => {
+    wwr_req(`SET/TRACK/${idx}/MUTE/-1`);
+    // Also mute linked channel
+    const partner = getLinkedPartner(idx);
+    if (partner) wwr_req(`SET/TRACK/${partner}/MUTE/-1`);
+  };
+  
+  ch.querySelector(".btn-solo").onclick = () => {
+    wwr_req(`SET/TRACK/${idx}/SOLO/-1`);
+    // Also solo linked channel
+    const partner = getLinkedPartner(idx);
+    if (partner) wwr_req(`SET/TRACK/${partner}/SOLO/-1`);
+  };
+
+  return ch;
+}
+
+// Fader drag handling
+function setupFaderDrag(handle, faderEl, trackIdx) {
+  let startY, startTop;
+  
+  function start(e) {
+    e.preventDefault();
+    startY = e.touches ? e.touches[0].clientY : e.clientY;
+    startTop = parseInt(handle.style.top) || 0;
+    
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", stop);
+    document.addEventListener("touchmove", move, { passive: false });
+    document.addEventListener("touchend", stop);
+  }
+  
+  function move(e) {
+    e.preventDefault();
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    const faderHeight = faderEl.clientHeight - handle.clientHeight;
+    let newTop = startTop + (y - startY);
+    newTop = Math.max(0, Math.min(faderHeight, newTop));
+    
+    // Convert position to dB
+    const pct = 1 - (newTop / faderHeight);
+    const db = (pct * 84) - 60; // Range: -60 to +24
+    const vol = dbToVol(db);
+    
+    wwr_req(`SET/TRACK/${trackIdx}/VOL/${vol.toFixed(8)}`);
+    
+    // Also move linked channel
+    const partner = getLinkedPartner(trackIdx);
+    if (partner) {
+      wwr_req(`SET/TRACK/${partner}/VOL/${vol.toFixed(8)}`);
+    }
+  }
+  
+  function stop() {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", stop);
+    document.removeEventListener("touchmove", move);
+    document.removeEventListener("touchend", stop);
+  }
+  
+  handle.addEventListener("mousedown", start);
+  handle.addEventListener("touchstart", start, { passive: false });
+}
+
+// Knob drag handling
+function setupKnobDrag(knob) {
+  let startY, startValue;
+  
+  function start(e) {
+    e.preventDefault();
+    startY = e.touches ? e.touches[0].clientY : e.clientY;
+    startValue = parseFloat(knob.dataset.value) || 0;
+    
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", stop);
+    document.addEventListener("touchmove", move, { passive: false });
+    document.addEventListener("touchend", stop);
+  }
+  
+  function move(e) {
+    e.preventDefault();
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    const delta = (startY - y) / 150;
+    let newValue = Math.max(0, Math.min(1, startValue + delta));
+    
+    const param = knob.dataset.param;
+    const trackIdx = parseInt(knob.dataset.track);
+    const inputNum = knob.dataset.inputNum;
+    
+    // Update the appropriate send or parameter
+    // Convert 0-1 to volume (use log scale for more natural feel)
+    const vol = newValue * newValue; // Square for better feel
+    
+    if (param === "pan") {
+      // Pan: 0=left, 0.5=center, 1=right
+      const panVal = (newValue - 0.5) * 2; // Convert to -1 to +1
+      wwr_req(`SET/TRACK/${trackIdx}/PAN/${panVal.toFixed(4)}`);
+      
+      // Update knob text
+      let panText = "C";
+      if (newValue < 0.48) panText = Math.round((0.5 - newValue) * 200) + "L";
+      else if (newValue > 0.52) panText = Math.round((newValue - 0.5) * 200) + "R";
+      knob.querySelector(".knob-text").textContent = panText;
+      return;
+    } else if (param === "reverb" && reverbTrackIdx !== null) {
+      // Control the send to reverb bus - Reaper uses AUXSEND for this
+      // Send index 0 is typically the first send on the track
+      wwr_req(`SET/TRACK/${trackIdx}/SEND/0/VOL/${vol.toFixed(4)}`);
+    } else if (param.startsWith("m") && inputToMonitorMap[param.toUpperCase()]) {
+      // Control the corresponding Mx/x track volume
+      const monKey = param.toUpperCase();
+      const monIdx = inputToMonitorMap[monKey]?.[inputNum];
+      if (monIdx) {
+        wwr_req(`SET/TRACK/${monIdx}/VOL/${vol.toFixed(4)}`);
+      }
+    }
+    
+    updateKnob(knob, newValue);
+  }
+  
+  function stop() {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", stop);
+    document.removeEventListener("touchmove", move);
+    document.removeEventListener("touchend", stop);
+  }
+  
+  knob.addEventListener("mousedown", start);
+  knob.addEventListener("touchstart", start, { passive: false });
+}
+
+function updateKnob(knob, value) {
+  knob.dataset.value = value;
+  knob.innerHTML = createKnobSVG(value, knob.classList.contains("reverb") ? "reverb" : 
+                                        knob.classList.contains("mon1") ? "mon1" : "mon2") +
+                   `<span class="knob-text">${Math.round(value * 100)}</span>`;
+}
+
+// FX Panel
+function openFxPanel(trackIdx) {
+  activeFxChannel = trackIdx;
+  const track = tracks[trackIdx];
+  if (!track) return;
+  
+  document.getElementById("fx-panel-title").textContent = track.name + " - FX";
+  
+  const content = document.getElementById("fx-panel-content");
+  content.innerHTML = `
+    <!-- Gate Section -->
+    <div class="fx-section" data-fx="gate">
+      <div class="fx-section-header">
+        <span class="fx-section-title">🚧 Gate</span>
+        <button class="fx-bypass" data-fx-idx="0" onclick="toggleFxBypass(${trackIdx}, 0)">ON</button>
+      </div>
+      <div class="fx-params">
+        <div class="fx-param">
+          <div class="fx-param-label">Thresh</div>
+          <div class="fx-param-knob" data-fx-idx="0" data-param-idx="0">
+            ${createKnobSVG(0.5)}
+          </div>
+          <div class="fx-param-value">-30 dB</div>
+        </div>
+        <div class="fx-param">
+          <div class="fx-param-label">Attack</div>
+          <div class="fx-param-knob" data-fx-idx="0" data-param-idx="1" data-default="0.006">
+            ${createKnobSVG(0.006)}
+          </div>
+          <div class="fx-param-value">0.6 ms</div>
+        </div>
+        <div class="fx-param">
+          <div class="fx-param-label">Hold</div>
+          <div class="fx-param-knob" data-fx-idx="0" data-param-idx="4" data-default="0">
+            ${createKnobSVG(0)}
+          </div>
+          <div class="fx-param-value">0 ms</div>
+        </div>
+        <div class="fx-param">
+          <div class="fx-param-label">Release</div>
+          <div class="fx-param-knob" data-fx-idx="0" data-param-idx="2" data-default="0.02">
+            ${createKnobSVG(0.02)}
+          </div>
+          <div class="fx-param-value">20 ms</div>
+        </div>
+      </div>
+      <div class="gate-meter"><div class="gate-meter-fill"></div></div>
+    </div>
+    
+    <!-- Compressor Section -->
+    <div class="fx-section" data-fx="comp">
+      <div class="fx-section-header">
+        <span class="fx-section-title">🔊 Compressor</span>
+        <button class="fx-bypass" data-fx-idx="1" onclick="toggleFxBypass(${trackIdx}, 1)">ON</button>
+      </div>
+      <div class="fx-params">
+        <div class="fx-param">
+          <div class="fx-param-label">Thresh</div>
+          <div class="fx-param-knob" data-fx-idx="1" data-param-idx="0">
+            ${createKnobSVG(0.5)}
+          </div>
+          <div class="fx-param-value">-18 dB</div>
+        </div>
+        <div class="fx-param">
+          <div class="fx-param-label">Ratio</div>
+          <div class="fx-param-knob" data-fx-idx="1" data-param-idx="1" data-default="0.0303">
+            ${createKnobSVG(0.0303)}
+          </div>
+          <div class="fx-param-value">4:1</div>
+        </div>
+        <div class="fx-param">
+          <div class="fx-param-label">Attack</div>
+          <div class="fx-param-knob" data-fx-idx="1" data-param-idx="2" data-default="0.006">
+            ${createKnobSVG(0.006)}
+          </div>
+          <div class="fx-param-value">0.6 ms</div>
+        </div>
+        <div class="fx-param">
+          <div class="fx-param-label">Release</div>
+          <div class="fx-param-knob" data-fx-idx="1" data-param-idx="3" data-default="0.02">
+            ${createKnobSVG(0.02)}
+          </div>
+          <div class="fx-param-value">20 ms</div>
+        </div>
+      </div>
+      <div class="gr-meter"><div class="gr-meter-fill"></div></div>
+    </div>
+    
+    <!-- EQ Section -->
+    <div class="fx-section" data-fx="eq">
+      <div class="fx-section-header">
+        <span class="fx-section-title">📊 EQ</span>
+        <button class="fx-bypass" data-fx-idx="2" onclick="toggleFxBypass(${trackIdx}, 2)">ON</button>
+      </div>
+      <div class="fx-params">
+        <div class="fx-param eq-band">
+          <div class="fx-param-label">HPF</div>
+          <div class="fx-param-knob" data-fx-idx="2" data-param-idx="12" data-default="0.1414">
+            ${createKnobSVG(0.1414)}
+          </div>
+          <div class="fx-param-value">20 Hz</div>
+          <div class="eq-freq">High Pass</div>
+        </div>
+        <div class="fx-param eq-band">
+          <div class="fx-param-label">Low</div>
+          <div class="fx-param-knob" data-fx-idx="2" data-param-idx="1" data-default="0.5">
+            ${createKnobSVG(0.5)}
+          </div>
+          <div class="fx-param-value">0.0 dB</div>
+          <div class="eq-freq">Low Shelf</div>
+        </div>
+        <div class="fx-param eq-band">
+          <div class="fx-param-label">Lo-Mid</div>
+          <div class="fx-param-knob" data-fx-idx="2" data-param-idx="4" data-default="0.5">
+            ${createKnobSVG(0.5)}
+          </div>
+          <div class="fx-param-value">0.0 dB</div>
+          <div class="eq-freq">Band 2</div>
+        </div>
+        <div class="fx-param eq-band">
+          <div class="fx-param-label">Hi-Mid</div>
+          <div class="fx-param-knob" data-fx-idx="2" data-param-idx="7" data-default="0.5">
+            ${createKnobSVG(0.5)}
+          </div>
+          <div class="fx-param-value">0.0 dB</div>
+          <div class="eq-freq">Band 3</div>
+        </div>
+        <div class="fx-param eq-band">
+          <div class="fx-param-label">High</div>
+          <div class="fx-param-knob" data-fx-idx="2" data-param-idx="10" data-default="0.5">
+            ${createKnobSVG(0.5)}
+          </div>
+          <div class="fx-param-value">0.0 dB</div>
+          <div class="eq-freq">High Shelf</div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Setup FX knob drags
+  content.querySelectorAll(".fx-param-knob").forEach(knob => {
+    setupFxKnobDrag(knob, trackIdx);
+  });
+  
+  // Request FX parameters - poll them along with track data
+  // FX params are included in TRACK response when FX is present
+  
+  document.getElementById("fx-overlay").classList.add("show");
+  
+  // Request current FX values from Reaper
+  requestFxValues(trackIdx);
+}
+
+function closeFxPanel() {
+  document.getElementById("fx-overlay").classList.remove("show");
+  activeFxChannel = null;
+  activeFxType = null;
+}
+
+// Open EQ-only panel for output channels (master/monitor outputs)
+function openOutputFxPanel(trackIdx, busType, name) {
+  activeFxChannel = trackIdx;
+  activeFxType = "output";
+  
+  const displayName = busType === "master" ? "Main Output" : name;
+  document.getElementById("fx-panel-title").textContent = displayName + " - EQ";
+  
+  // Monitor outputs only have ReaEQ at FX slot 0
+  const fxIdx = 0;
+  
+  const content = document.getElementById("fx-panel-content");
+  content.innerHTML = `
+    <!-- EQ Section for Output -->
+    <div class="fx-section" data-fx="eq">
+      <div class="fx-section-header">
+        <span class="fx-section-title">📊 Output EQ</span>
+        <button class="fx-bypass" data-fx-idx="${fxIdx}" onclick="toggleFxBypass(${trackIdx}, ${fxIdx})">ON</button>
+      </div>
+      <div class="fx-params">
+        <div class="fx-param eq-band">
+          <div class="fx-param-label">HPF</div>
+          <div class="fx-param-knob" data-fx-idx="${fxIdx}" data-param-idx="12" data-default="0.1414">
+            ${createKnobSVG(0.1414)}
+          </div>
+          <div class="fx-param-value">20 Hz</div>
+          <div class="eq-freq">High Pass</div>
+        </div>
+        <div class="fx-param eq-band">
+          <div class="fx-param-label">Low</div>
+          <div class="fx-param-knob" data-fx-idx="${fxIdx}" data-param-idx="1" data-default="0.5">
+            ${createKnobSVG(0.5)}
+          </div>
+          <div class="fx-param-value">0.0 dB</div>
+          <div class="eq-freq">Low Shelf</div>
+        </div>
+        <div class="fx-param eq-band">
+          <div class="fx-param-label">Lo-Mid</div>
+          <div class="fx-param-knob" data-fx-idx="${fxIdx}" data-param-idx="4" data-default="0.5">
+            ${createKnobSVG(0.5)}
+          </div>
+          <div class="fx-param-value">0.0 dB</div>
+          <div class="eq-freq">Band 2</div>
+        </div>
+        <div class="fx-param eq-band">
+          <div class="fx-param-label">Hi-Mid</div>
+          <div class="fx-param-knob" data-fx-idx="${fxIdx}" data-param-idx="7" data-default="0.5">
+            ${createKnobSVG(0.5)}
+          </div>
+          <div class="fx-param-value">0.0 dB</div>
+          <div class="eq-freq">Band 3</div>
+        </div>
+        <div class="fx-param eq-band">
+          <div class="fx-param-label">High</div>
+          <div class="fx-param-knob" data-fx-idx="${fxIdx}" data-param-idx="10" data-default="0.5">
+            ${createKnobSVG(0.5)}
+          </div>
+          <div class="fx-param-value">0.0 dB</div>
+          <div class="eq-freq">High Shelf</div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Setup FX knob drags
+  content.querySelectorAll(".fx-param-knob").forEach(knob => {
+    setupFxKnobDrag(knob, trackIdx);
+  });
+  
+  document.getElementById("fx-overlay").classList.add("show");
+  
+  // Request current EQ values
+  requestOutputFxValues(trackIdx);
+}
+
+function requestOutputFxValues(trackIdx) {
+  if (oscWs && oscWs.readyState === WebSocket.OPEN) {
+    oscWs.send(JSON.stringify({
+      type: 'fxReadOutput',
+      trackIdx: trackIdx
+    }));
+  }
+}
+
+function toggleFxBypass(trackIdx, fxIdx) {
+  // Send bypass toggle via WebSocket to ReaScript
+  sendFxBypass(trackIdx, fxIdx);
+  const partner = getLinkedPartner(trackIdx);
+  if (partner) {
+    sendFxBypass(partner, fxIdx);
+  }
+}
+
+function setupFxKnobDrag(knob, trackIdx) {
+  let startY, startValue;
+  
+  // Double-click to reset to default
+  knob.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    const fxIdx = parseInt(knob.dataset.fxIdx);
+    const paramIdx = parseInt(knob.dataset.paramIdx);
+    const defaultVal = parseFloat(knob.dataset.default) || 0.5;
+    
+    knob.dataset.value = defaultVal;
+    knob.innerHTML = createKnobSVG(defaultVal);
+    
+    sendFxCommand(trackIdx, fxIdx, paramIdx, defaultVal);
+    
+    const partner = getLinkedPartner(trackIdx);
+    if (partner) {
+      sendFxCommand(partner, fxIdx, paramIdx, defaultVal);
+    }
+    
+    const paramContainer = knob.closest('.fx-param');
+    const valueDisplay = paramContainer?.querySelector('.fx-param-value');
+    if (valueDisplay) {
+      valueDisplay.textContent = formatFxValue(fxIdx, paramIdx, defaultVal);
+    }
+  });
+  
+  function start(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    lastY = e.touches ? e.touches[0].clientY : e.clientY;
+    startValue = parseFloat(knob.dataset.value) || 0.5;
+    
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", stop);
+    document.addEventListener("touchmove", move, { passive: false });
+    document.addEventListener("touchend", stop);
+  }
+  
+  let lastY;
+  
+  function move(e) {
+    e.preventDefault();
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    const dy = lastY - y;
+    lastY = y;
+    
+    const fxIdx = parseInt(knob.dataset.fxIdx);
+    const paramIdx = parseInt(knob.dataset.paramIdx);
+    
+    // Update local display
+    const currentVal = parseFloat(knob.dataset.value) || 0.5;
+    const newValue = Math.max(0, Math.min(1, currentVal + (dy * 0.005)));
+    knob.dataset.value = newValue;
+    knob.innerHTML = createKnobSVG(newValue);
+    
+    // Send FX command via WebSocket to ReaScript
+    sendFxCommand(trackIdx, fxIdx, paramIdx, newValue);
+    
+    // Also apply to linked channel
+    const partner = getLinkedPartner(trackIdx);
+    if (partner) {
+      sendFxCommand(partner, fxIdx, paramIdx, newValue);
+    }
+    
+    // Update value display
+    const paramContainer = knob.closest('.fx-param');
+    const valueDisplay = paramContainer?.querySelector('.fx-param-value');
+    if (valueDisplay) {
+      valueDisplay.textContent = formatFxValue(fxIdx, paramIdx, newValue);
+    }
+  }
+  
+  function stop() {
+    document.removeEventListener("mousemove", move);
+    document.removeEventListener("mouseup", stop);
+    document.removeEventListener("touchmove", move);
+    document.removeEventListener("touchend", stop);
+  }
+  
+  knob.addEventListener("mousedown", start);
+  knob.addEventListener("touchstart", start, { passive: false });
+}
+
+// Build layer tabs dynamically
+function rebuildTabs() {
+  const tabContainer = document.querySelector(".layer-tabs");
+  tabContainer.innerHTML = `<button class="layer-tab ${currentLayer === 'foh' ? 'active' : ''}" data-layer="foh">FOH</button>`;
+  
+  const colors = ['#ff9500', '#30d158', '#5ac8fa', '#ff2d55', '#af52de', '#ffcc00'];
+  
+  monitorPrefixes.forEach((prefix, i) => {
+    const colorClass = `mon${i + 1}`;
+    tabContainer.innerHTML += `<button class="layer-tab ${colorClass} ${currentLayer === prefix.toLowerCase() ? 'active' : ''}" data-layer="${prefix.toLowerCase()}">${prefix}</button>`;
+  });
+  
+  // Re-attach click handlers
+  document.querySelectorAll(".layer-tab").forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll(".layer-tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      currentLayer = tab.dataset.layer;
+      rebuildMixer();
+    };
+  });
+}
+
+// Rebuild mixer based on current layer
+function rebuildMixer() {
+  const container = document.getElementById("mixer-container");
+  container.innerHTML = "";
+  
+  let tracksToShow = [];
+  let outputChannel = null;
+  
+  if (currentLayer === "foh") {
+    tracksToShow = [...fohTracks];
+    // Add master fader at end
+    outputChannel = { type: "master", idx: 0, name: "MAIN", color: "#ff453a" };
+  } else {
+    // Find matching monitor bus (m1, m2, m3, etc.)
+    const prefix = currentLayer.toUpperCase();
+    tracksToShow = monitorBuses[prefix] || [];
+    
+    // Add monitor output fader at end
+    const outputInfo = monitorOutputTracks[prefix];
+    if (outputInfo) {
+      outputChannel = { type: "monitor", idx: outputInfo.idx, name: outputInfo.name, color: outputInfo.color };
+    }
+  }
+  
+  // Sort tracks: numbers first, then special (VERB, REVERB)
+  tracksToShow.sort((a, b) => {
+    const numA = parseInt(a.inputNum) || 999;
+    const numB = parseInt(b.inputNum) || 999;
+    return numA - numB;
+  });
+  
+  tracksToShow.forEach(t => {
+    const channel = buildChannel(t.idx, t.name, t.color, t.type, t.inputNum);
+    container.appendChild(channel);
+  });
+  
+  // Add output channel at the end
+  if (outputChannel) {
+    const outCh = buildOutputChannel(outputChannel.idx, outputChannel.name, outputChannel.color, outputChannel.type);
+    container.appendChild(outCh);
+  }
+}
+
+// Extract channel number from track name
+function getChannelNum(name) {
+  const match = name.match(/\/(\d+)$/);
+  return match ? match[1] : null;
+}
+
+// Handle Reaper replies
+function wwr_onreply(data) {
+  const lines = data.split("\n");
+  let needsRebuild = false;
+  
+  lines.forEach(line => {
+    const tok = line.split("\t");
+    
+    if (tok[0] === "TRACK") {
+      const idx = parseInt(tok[1]);
+      const name = tok[2];
+      const flags = parseInt(tok[3]);
+      const vol = parseFloat(tok[4]);
+      const pan = parseFloat(tok[5]);
+      const peak = parseInt(tok[6]) || 0;
+      const peakR = parseInt(tok[7]) || 0;
+      const color = colorFromReaper(tok[13]);
+      
+      // Categorize tracks on first encounter
+      if (!tracks[idx]) {
+        tracks[idx] = { name, color, vol };
+        
+        if (name === REVERB_TRACK_NAME) {
+          reverbTrackIdx = idx;
+          // Add reverb to FOH tracks
+          fohTracks.push({ idx, name, color, type: "bus", inputNum: "REV" });
+          needsRebuild = true;
+        } else if (name.startsWith(INPUT_PREFIX)) {
+          const inputNum = getChannelNum(name);
+          const trackInfo = { idx, name, color, type: "input", inputNum };
+          inputTracks.push(trackInfo);
+          fohTracks.push(trackInfo);
+          needsRebuild = true;
+        } else if (name.match(/^MON \d+$/)) {
+          // Monitor output bus (e.g., "MON 1", "MON 2")
+          const monNum = name.match(/^MON (\d+)$/)[1];
+          const prefix = "M" + monNum;
+          monitorOutputTracks[prefix] = { idx, name, color };
+          needsRebuild = true;
+        } else {
+          // Check for monitor bus pattern: M1/, M2/, M3/, etc.
+          const monMatch = name.match(/^(M\d+)\//);
+          if (monMatch) {
+            const prefix = monMatch[1]; // "M1", "M2", etc.
+            
+            // Initialize bus if needed
+            if (!monitorBuses[prefix]) {
+              monitorBuses[prefix] = [];
+              inputToMonitorMap[prefix] = {};
+              if (!monitorPrefixes.includes(prefix)) {
+                monitorPrefixes.push(prefix);
+                monitorPrefixes.sort();
+                rebuildTabs();
+              }
+            }
+            
+            const inputNum = name.includes("VERB") ? "VERB" : getChannelNum(name);
+            monitorBuses[prefix].push({ idx, name, color, type: "monitor", inputNum });
+            
+            if (inputNum && inputNum !== "VERB") {
+              inputToMonitorMap[prefix][inputNum] = idx;
+            }
+            needsRebuild = true;
+          }
+        }
+      }
+      
+      // Update channel strip
+      const channel = document.querySelector(`.channel[data-track-idx="${idx}"]`);
+      if (channel) {
+        // Update fader position
+        const db = volToDb(vol);
+        const handle = channel.querySelector(".fader-handle");
+        const faderEl = channel.querySelector(".fader");
+        if (handle && faderEl) {
+          const faderHeight = faderEl.clientHeight - handle.clientHeight;
+          const pct = (db + 60) / 84; // -60 to +24 range
+          const top = faderHeight * (1 - Math.max(0, Math.min(1, pct)));
+          handle.style.top = top + "px";
+        }
+        
+        // Update dB display
+        const dbDisplay = channel.querySelector(".fader-db");
+        if (dbDisplay) {
+          dbDisplay.textContent = formatDb(db);
+        }
+        
+        // Update meters (peak values from Reaper are in 0.1 dB units)
+        const meterL = channel.querySelector('[data-meter="l"]');
+        const meterR = channel.querySelector('[data-meter="r"]');
+        if (meterL && meterR) {
+          // Convert peak to dB then to percentage (matching IEM mixer)
+          const peakDbL = peak / 10;
+          const peakDbR = (peakR || peak) / 10;
+          const pctL = Math.max(0, Math.min(100, (peakDbL + 60) / 60 * 100));
+          const pctR = Math.max(0, Math.min(100, (peakDbR + 60) / 60 * 100));
+          meterL.style.height = pctL + "%";
+          meterR.style.height = pctR + "%";
+        }
+        
+        // Update mute state
+        const muteBtn = channel.querySelector(".btn-mute");
+        if (muteBtn) {
+          if (flags & 8) muteBtn.classList.add("active");
+          else muteBtn.classList.remove("active");
+        }
+        
+        // Update solo state
+        const soloBtn = channel.querySelector(".btn-solo");
+        if (soloBtn) {
+          if (flags & 16) soloBtn.classList.add("active");
+          else soloBtn.classList.remove("active");
+        }
+        
+        // Update pan knob
+        const panKnob = channel.querySelector(".knob.pan");
+        if (panKnob) {
+          const panVal = (pan + 1) / 2; // Convert -1..+1 to 0..1
+          panKnob.dataset.value = panVal;
+          let panText = "C";
+          if (panVal < 0.48) panText = Math.round((0.5 - panVal) * 200) + "L";
+          else if (panVal > 0.52) panText = Math.round((panVal - 0.5) * 200) + "R";
+          panKnob.innerHTML = createKnobSVG(panVal, "pan") + `<span class="knob-text">${panText}</span>`;
+        }
+      }
+      
+      // Update monitor send knobs in FOH view based on Mx/ track volumes
+      if (currentLayer === "foh") {
+        const monMatch = name.match(/^(M\d+)\//);
+        if (monMatch && !name.includes("VERB")) {
+          const prefix = monMatch[1];
+          const inputNum = getChannelNum(name);
+          const monIdx = monitorPrefixes.indexOf(prefix) + 1;
+          if (inputNum && monIdx > 0) {
+            const knob = document.querySelector(`.knob[data-param="${prefix.toLowerCase()}"][data-input-num="${inputNum}"]`);
+            if (knob) {
+              const knobVal = Math.sqrt(vol);
+              updateKnob(knob, Math.min(1, knobVal));
+            }
+          }
+        }
+      }
+    }
+    
+    // Handle FX parameter responses  
+    // Format: FXPARM trackIdx fxIdx paramIdx value name
+    if (tok[0] === "FXPARM" && activeFxChannel !== null) {
+      const trackIdxResp = parseInt(tok[1]);
+      if (trackIdxResp === activeFxChannel) {
+        const fxIdx = parseInt(tok[2]);
+        const paramIdx = parseInt(tok[3]);
+        const value = parseFloat(tok[4]);
+        // tok[5] is param name
+        
+        const knob = document.querySelector(
+          `.fx-param-knob[data-fx-idx="${fxIdx}"][data-param-idx="${paramIdx}"]`
+        );
+        if (knob) {
+          knob.dataset.value = value;
+          knob.innerHTML = createKnobSVG(value);
+          
+          const paramContainer = knob.closest('.fx-param');
+          const valueDisplay = paramContainer?.querySelector('.fx-param-value');
+          if (valueDisplay) {
+            valueDisplay.textContent = formatFxValue(fxIdx, paramIdx, value);
+          }
+        }
+      }
+    }
+  });
+  
+  // Rebuild mixer once after initial track discovery
+  if (needsRebuild && !initialized) {
+    initialized = true;
+    setTimeout(rebuildMixer, 100);
+  }
+}
+
+// Close FX panel when clicking overlay
+document.getElementById("fx-overlay").onclick = (e) => {
+  if (e.target.id === "fx-overlay") {
+    closeFxPanel();
+  }
+};
+
+// Initial tab build
+rebuildTabs();
+
+// Request FX params via OSC when panel opens
+function requestFxParams(trackIdx) {
+  if (!oscConnected) return;
+  
+  // Request each FX param we care about
+  const fxParams = [
+    [0, [0, 4, 5, 6]],      // Gate
+    [1, [0, 3, 4, 5]],      // Comp
+    [2, [2, 6, 10, 14]]     // EQ gains
+  ];
+  
+  fxParams.forEach(([fxIdx, params]) => {
+    params.forEach(paramIdx => {
+      sendOSC(`/track/${trackIdx}/fx/${fxIdx}/fxparam/${paramIdx}/value`, -1); // -1 = query
+    });
+  });
+}
+
+// Start polling
+wwr_req_recur("TRACK", 100);
+wwr_start();
+</script>
+</body>
+</html>

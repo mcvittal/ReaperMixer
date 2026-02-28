@@ -1,0 +1,43 @@
+# Reaper OSC Pattern Configuration for Live Mixer
+# Copy this file to: ~/Library/Application Support/REAPER/OSC/ (Mac)
+# Or: %APPDATA%\REAPER\OSC\ (Windows)
+
+# Device capabilities
+DEVICE_TRACK_COUNT 32
+DEVICE_SEND_COUNT 8
+DEVICE_RECEIVE_COUNT 8
+DEVICE_FX_COUNT 8
+DEVICE_FX_PARAM_COUNT 64
+
+# Track controls (1-indexed track numbers)
+TRACK_VOLUME n/track/@/volume
+TRACK_PAN n/track/@/pan
+TRACK_MUTE b/track/@/mute
+TRACK_SOLO b/track/@/solo
+TRACK_NAME s/track/@/name
+
+# Track VU meters
+TRACK_VU n/track/@/vu/L
+TRACK_VU_R n/track/@/vu/R
+
+# Track sends
+TRACK_SEND_VOLUME n/track/@/send/@/volume
+
+# Master track
+MASTER_VOLUME n/master/volume
+MASTER_PAN n/master/pan
+
+# FX Control - Direct parameter access
+FX_PARAM_VALUE n/track/@/fx/@/fxparam/@/value
+FX_WETDRY n/track/@/fx/@/wetdry
+FX_BYPASS b/track/@/fx/@/bypass
+
+# Transport (optional)
+PLAY b/play
+STOP b/stop
+RECORD b/record
+REWIND t/rewind
+FORWARD t/forward
+
+# Action triggers (for custom actions)
+ACTION t/action/@
