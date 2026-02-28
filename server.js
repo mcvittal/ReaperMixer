@@ -24,6 +24,7 @@ const os = require('os');
 // Use /tmp for simplicity on Mac/Linux
 const FX_CMD_FILE = '/tmp/fx_commands.txt';
 const FX_RESPONSE_FILE = '/tmp/fx_response.txt';
+const FX_METERS_FILE = '/tmp/fx_meters.txt';
 
 // Configuration
 const CONFIG = {
@@ -405,6 +406,51 @@ udpPort.on('ready', () => {
 ╚══════════════════════════════════════════════════════════════════════╝
   `);
 });
+
+// Poll FX meters file and broadcast to clients
+let lastMeterData = '';
+setInterval(() => {
+  if (clients.size === 0) return;
+  
+  try {
+    const data = fs.readFileSync(FX_METERS_FILE, 'utf8');
+    if (data && data.trim() && data !== lastMeterData) {
+      lastMeterData = data;
+      
+      const lines = data.trim().split('\n');
+      const meterData = { type: 'fxMeters', tracks: {} };
+      
+      lines.forEach(line => {
+        const parts = line.split(',');
+        if (parts[0] === 'GR') {
+          // GR,trackIdx,grValue
+          const trackIdx = parseInt(parts[1]);
+          const gr = parseFloat(parts[2]);
+          if (!meterData.tracks[trackIdx]) meterData.tracks[trackIdx] = {};
+          meterData.tracks[trackIdx].gr = gr;
+        } else if (parts[0] === 'GATE') {
+          // GATE,trackIdx,isOpen,level
+          const trackIdx = parseInt(parts[1]);
+          const isOpen = parts[2] === '1';
+          const level = parseFloat(parts[3]);
+          if (!meterData.tracks[trackIdx]) meterData.tracks[trackIdx] = {};
+          meterData.tracks[trackIdx].gateOpen = isOpen;
+          meterData.tracks[trackIdx].gateLevel = level;
+        }
+      });
+      
+      // Broadcast to all clients
+      const message = JSON.stringify(meterData);
+      clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(message);
+        }
+      });
+    }
+  } catch (e) {
+    // File may not exist yet
+  }
+}, 100); // Poll every 100ms
 
 // Start web server
 server.listen(CONFIG.webPort, () => {

@@ -39,6 +39,8 @@ function connectOSC() {
         handleFxValues(data);
       } else if (data.type === 'allSendValues') {
         handleAllSendValues(data);
+      } else if (data.type === 'fxMeters') {
+        handleFxMeters(data);
       }
     } catch(e) {}
   };
@@ -163,6 +165,25 @@ function requestAllSendValues() {
   if (oscWs && oscWs.readyState === WebSocket.OPEN) {
     oscWs.send(JSON.stringify({ type: 'sendsReadAll' }));
   }
+}
+
+// Handle FX meter data (GR from compressor, gate state)
+function handleFxMeters(data) {
+  const tracks = data.tracks || {};
+  
+  Object.entries(tracks).forEach(([trackIdxStr, meterData]) => {
+    const trackIdx = parseInt(trackIdxStr);
+    
+    // Update GR meter if present
+    if (typeof meterData.gr === 'number') {
+      updateGrMeter(trackIdx, meterData.gr);
+    }
+    
+    // Update gate state if present
+    if (typeof meterData.gateOpen === 'boolean') {
+      updateGateMeter(trackIdx, meterData.gateOpen, meterData.gateLevel || 0);
+    }
+  });
 }
 
 function updateFxKnobFromOSC(fxIdx, paramIdx, value) {
@@ -655,13 +676,20 @@ body {
   bottom: 0;
   left: 0;
   right: 0;
-  background: linear-gradient(to top, 
-    #30d158 0%, 
-    #30d158 60%, 
-    #ffd60a 75%, 
-    #ff453a 95%
-  );
-  transition: height 0.05s;
+  background: #30d158;
+  /* Fast updates - no transition for responsiveness */
+}
+
+.meter-fill.level-green {
+  background: #30d158;
+}
+
+.meter-fill.level-yellow {
+  background: #ffd60a;
+}
+
+.meter-fill.level-red {
+  background: #ff453a;
 }
 
 .fader-handle {
@@ -2948,13 +2976,11 @@ function wwr_onreply(data) {
         const meterL = channel.querySelector('[data-meter="l"]');
         const meterR = channel.querySelector('[data-meter="r"]');
         if (meterL && meterR) {
-          // Convert peak to dB then to percentage (matching IEM mixer)
+          // Convert peak to dB then to percentage
           const peakDbL = peak / 10;
           const peakDbR = (peakR || peak) / 10;
-          const pctL = Math.max(0, Math.min(100, (peakDbL + 60) / 60 * 100));
-          const pctR = Math.max(0, Math.min(100, (peakDbR + 60) / 60 * 100));
-          meterL.style.height = pctL + "%";
-          meterR.style.height = pctR + "%";
+          updateMeter(meterL, peakDbL);
+          updateMeter(meterR, peakDbR);
         }
         
         // Update mute state
@@ -3640,6 +3666,59 @@ function updateBgMusicMeter(vol, peak, peakR) {
   
   const dbDisplay = ch.querySelector('.fader-db');
   if (dbDisplay) dbDisplay.textContent = formatDb(db);
+}
+
+// Update meter with proper color based on level thresholds
+// Green: below -8dB, Yellow: -8dB to -3dB, Red: -2dB or above
+function updateMeter(meterEl, peakDb) {
+  // Convert dB to percentage (range -60 to 0 dB mapped to 0-100%)
+  const pct = Math.max(0, Math.min(100, (peakDb + 60) / 60 * 100));
+  meterEl.style.height = pct + "%";
+  
+  // Set color based on actual dB level, not percentage
+  meterEl.classList.remove('level-green', 'level-yellow', 'level-red');
+  
+  if (peakDb >= -2) {
+    meterEl.classList.add('level-red');
+  } else if (peakDb >= -8) {
+    meterEl.classList.add('level-yellow');
+  } else {
+    meterEl.classList.add('level-green');
+  }
+}
+
+// Update GR meter in FX panel
+function updateGrMeter(trackIdx, grDb) {
+  const container = document.querySelector(`[data-gr-meter="${trackIdx}"]`);
+  if (!container) return;
+  
+  const fill = container.querySelector('.gr-meter-fill');
+  const value = container.querySelector('.gr-meter-value');
+  
+  // GR is typically 0 to -20dB, map to 0-100%
+  const grPct = Math.min(100, Math.abs(grDb) / 20 * 100);
+  
+  if (fill) fill.style.width = grPct + '%';
+  if (value) value.textContent = grDb.toFixed(1) + ' dB';
+}
+
+// Update gate meter in FX panel
+function updateGateMeter(trackIdx, isOpen, gateLevel) {
+  const meter = document.querySelector(`[data-gate-meter="${trackIdx}"]`);
+  if (!meter) return;
+  
+  const fill = meter.querySelector('.gate-meter-fill');
+  const label = meter.querySelector('.gate-meter-label');
+  
+  if (isOpen) {
+    meter.classList.add('open');
+    if (label) label.textContent = 'GATE OPEN';
+    if (fill) fill.style.width = Math.min(100, gateLevel * 100) + '%';
+  } else {
+    meter.classList.remove('open');
+    if (label) label.textContent = 'GATE CLOSED';
+    if (fill) fill.style.width = '0%';
+  }
 }
 
 // Start polling

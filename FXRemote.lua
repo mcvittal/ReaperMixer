@@ -217,8 +217,70 @@ function ProcessCommands()
   end
 end
 
+-- Meter update interval counter
+local meterCounter = 0
+local METER_UPDATE_INTERVAL = 2 -- Every 2nd cycle (100ms at 50ms poll)
+
+-- Poll FX meters (GR from compressor, gate state from gate)
+function PollFxMeters()
+  meterCounter = meterCounter + 1
+  if meterCounter < METER_UPDATE_INTERVAL then return end
+  meterCounter = 0
+  
+  local response = {}
+  local numTracks = reaper.CountTracks(0)
+  
+  for trackIdx = 1, numTracks do
+    local track = reaper.GetTrack(0, trackIdx - 1)
+    if track then
+      local _, trackName = reaper.GetTrackName(track)
+      
+      -- Only process IN/ tracks (input tracks with FX)
+      if trackName:match("^IN/") then
+        -- Get compressor GR (FX slot 1 = ReaComp)
+        -- ReaComp meter index for GR is typically index 1
+        local retval, gr = reaper.TrackFX_GetNamedConfigParm(track, 1, "GainReduction_dB")
+        if retval and gr then
+          table.insert(response, string.format("GR,%d,%.2f", trackIdx, tonumber(gr) or 0))
+        end
+        
+        -- Get gate state (FX slot 0 = ReaGate)
+        -- Check if gate is open by comparing input to output level
+        local gateOpen = false
+        local gateLevel = 0
+        
+        -- ReaGate doesn't have a direct "open" parameter, but we can check
+        -- the wet/dry ratio or meter the output. For now, approximate by
+        -- checking if threshold is being exceeded (read threshold and compare to track peak)
+        local thresh = reaper.TrackFX_GetParamNormalized(track, 0, 0) -- Threshold param
+        local threshDb = (thresh * 120) - 60 -- Convert to dB
+        
+        -- Get track peak level
+        local peakL = reaper.Track_GetPeakInfo(track, 0)
+        local peakR = reaper.Track_GetPeakInfo(track, 1)
+        local peakDb = 20 * math.log10(math.max(peakL, peakR, 0.0000001))
+        
+        gateOpen = peakDb > threshDb
+        gateLevel = math.max(0, math.min(1, (peakDb + 60) / 60))
+        
+        table.insert(response, string.format("GATE,%d,%d,%.3f", trackIdx, gateOpen and 1 or 0, gateLevel))
+      end
+    end
+  end
+  
+  -- Send meter data via response file if we have any
+  if #response > 0 then
+    local mf = io.open("/tmp/fx_meters.txt", "w")
+    if mf then
+      mf:write(table.concat(response, "\n") .. "\n")
+      mf:close()
+    end
+  end
+end
+
 function Main()
   ProcessCommands()
+  PollFxMeters()
   reaper.defer(Main)
 end
 
