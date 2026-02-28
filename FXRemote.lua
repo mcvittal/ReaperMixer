@@ -109,6 +109,20 @@ function ProcessCommands()
         end
       end
       
+      -- Handle send mode: M,trackIdx,sendIdx,mode (0=post-fader, 3=pre-fader)
+      local mTrack, mSend, mMode = line:match("^M,(%d+),(%d+),(%d+)")
+      if mTrack then
+        mTrack = tonumber(mTrack)
+        mSend = tonumber(mSend)
+        mMode = tonumber(mMode)
+        local track = GetTrackByIndex(mTrack)
+        if track then
+          reaper.SetTrackSendInfo_Value(track, 0, mSend, "I_SENDMODE", mMode)
+          reaper.ShowConsoleMsg(string.format("  Send Mode: Track %d, Send %d -> %s\n", 
+            mTrack, mSend, mMode == 3 and "PRE" or "POST"))
+        end
+      end
+      
       -- Handle output EQ read: O,trackIdx (only FX 0 = ReaEQ)
       local oTrack = line:match("^O,(%d+)")
       if oTrack then

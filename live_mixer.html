@@ -569,6 +569,26 @@ body {
   border-color: #4a9eff;
 }
 
+/* PFL Button (Pre-Fader Listen) */
+.pfl-btn {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #666;
+  font-size: 8px;
+  font-weight: 600;
+  padding: 2px 4px;
+  cursor: pointer;
+  text-align: center;
+  min-width: 28px;
+}
+
+.pfl-btn:active, .pfl-btn.active {
+  background: #bf5af2;
+  color: #fff;
+  border-color: #bf5af2;
+}
+
 .channel.linked {
   border-color: #4a9eff;
 }
@@ -1310,6 +1330,7 @@ body {
   <div class="header-controls">
     <button class="header-btn" id="muteMonBtn" onclick="toggleMuteMonitors()" title="Mute All Monitors">🔇 MON</button>
     <button class="header-btn" id="muteAllBtn" onclick="toggleMuteAll()" title="Mute All Outputs">🔇 ALL</button>
+    <button class="header-btn" id="monPflBtn" onclick="toggleGlobalMonPfl()" title="All Monitor Sends Pre-Fader">MON POST</button>
     <button class="header-btn fx-master" id="globalFxBtn" onclick="toggleGlobalFx()" title="Global FX On/Off">FX</button>
     <button class="header-btn reset-btn" onclick="openResetMenu()" title="Reset Options">↺</button>
   </div>
@@ -1727,6 +1748,7 @@ function buildChannel(idx, name, color, type = "input", inputNum = null) {
             <span class="knob-text">0</span>
           </button>
         </div>
+        <button class="pfl-btn" data-track="${idx}" onclick="togglePfl(this, ${idx})" title="Pre-Fader">POST</button>
       </div>
       ${monitorPrefixes.map((prefix, i) => `
       <div class="send-row" data-show-layer="foh">
@@ -3145,6 +3167,84 @@ handleFxValues = function(data) {
 let globalFxBypassed = false;
 let monitorsMuted = false;
 let allOutputsMuted = false;
+
+// PFL (Pre-Fader Listen) state per track
+let pflState = {}; // { trackIdx: true/false } - true = pre-fader
+let globalMonPfl = false; // Global PFL for all monitor sends
+
+function toggleGlobalMonPfl() {
+  globalMonPfl = !globalMonPfl;
+  const btn = document.getElementById('monPflBtn');
+  btn.classList.toggle('active', globalMonPfl);
+  btn.textContent = globalMonPfl ? 'MON PRE' : 'MON POST';
+  btn.style.background = globalMonPfl ? '#bf5af2' : '#333';
+  btn.style.color = globalMonPfl ? '#fff' : '#aaa';
+  
+  // Set all monitor bus tracks (Mx/ tracks) to pre or post fader
+  // These tracks receive audio via routing, so we toggle their send mode
+  // Monitor buses are controlled via volume, so set all Mx/ tracks' parent send mode
+  Object.entries(monitorBuses).forEach(([prefix, busTracks]) => {
+    busTracks.forEach(t => {
+      // For Mx/ tracks, we want to control how they receive from inputs
+      // Actually, the monitor tracks ARE the destinations, we control the source
+      // So we set the send mode on the input tracks going TO these monitor tracks
+    });
+  });
+  
+  // Set send mode for all monitor sends on all input tracks
+  // Monitor sends are typically send indices 1, 2, 3, etc. (after reverb which is 0)
+  inputTracks.forEach(t => {
+    // For each monitor prefix, set the corresponding send mode
+    monitorPrefixes.forEach((prefix, i) => {
+      const sendIdx = i + 1; // Monitor sends start at index 1 (reverb is 0)
+      if (oscWs && oscWs.readyState === WebSocket.OPEN) {
+        oscWs.send(JSON.stringify({
+          type: 'sendMode',
+          trackIdx: t.idx,
+          sendIdx: sendIdx,
+          mode: globalMonPfl ? 3 : 0 // 3 = pre-fader, 0 = post-fader
+        }));
+      }
+    });
+  });
+}
+
+function togglePfl(btn, trackIdx) {
+  const isPreFader = !pflState[trackIdx];
+  pflState[trackIdx] = isPreFader;
+  
+  btn.classList.toggle('active', isPreFader);
+  btn.textContent = isPreFader ? 'PRE' : 'POST';
+  
+  // Send mode change via WebSocket
+  if (oscWs && oscWs.readyState === WebSocket.OPEN) {
+    oscWs.send(JSON.stringify({
+      type: 'sendMode',
+      trackIdx: trackIdx,
+      sendIdx: 0, // Reverb is send 0
+      mode: isPreFader ? 3 : 0 // 3 = pre-fader, 0 = post-fader
+    }));
+  }
+  
+  // Also update linked partner
+  const partner = getLinkedPartner(trackIdx);
+  if (partner) {
+    pflState[partner] = isPreFader;
+    const partnerBtn = document.querySelector(`.pfl-btn[data-track="${partner}"]`);
+    if (partnerBtn) {
+      partnerBtn.classList.toggle('active', isPreFader);
+      partnerBtn.textContent = isPreFader ? 'PRE' : 'POST';
+    }
+    if (oscWs && oscWs.readyState === WebSocket.OPEN) {
+      oscWs.send(JSON.stringify({
+        type: 'sendMode',
+        trackIdx: partner,
+        sendIdx: 0,
+        mode: isPreFader ? 3 : 0
+      }));
+    }
+  }
+}
 
 function toggleMuteMonitors() {
   monitorsMuted = !monitorsMuted;

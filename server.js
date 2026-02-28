@@ -107,6 +107,17 @@ function handleWebMessage(data) {
     } catch (e) {
       console.error('FX command file error:', e.message);
     }
+  } else if (data.type === 'sendMode') {
+    // Set send mode (pre/post fader)
+    const { trackIdx, sendIdx, mode } = data;
+    const cmd = `M,${trackIdx},${sendIdx},${mode}\n`; // M = send Mode, mode: 0=post, 3=pre
+    
+    try {
+      fs.appendFileSync(FX_CMD_FILE, cmd);
+      console.log('→ Send Mode:', cmd.trim());
+    } catch (e) {
+      console.error('Send mode command error:', e.message);
+    }
   } else if (data.type === 'fxSetBypass') {
     // Write explicit bypass set command (not toggle)
     const { trackIdx, fxIdx, bypassed } = data;
