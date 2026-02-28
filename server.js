@@ -200,15 +200,14 @@ function handleWebMessage(data) {
     } catch (e) {
       console.error('FX read output error:', e.message);
     }
-  } else if (data.type === 'sendRead') {
-    // Request send values from ReaScript
-    const { trackIdx } = data;
-    const cmd = `S,${trackIdx}\n`;
+  } else if (data.type === 'sendsReadAll') {
+    // Request ALL send values at once from ReaScript
+    const cmd = `SENDS\n`;
     
     try {
       fs.writeFileSync(FX_RESPONSE_FILE, '');
       fs.appendFileSync(FX_CMD_FILE, cmd);
-      console.log('→ Send Read:', cmd.trim());
+      console.log('→ Sends Read All');
       
       let attempts = 0;
       const pollInterval = setInterval(() => {
@@ -220,32 +219,39 @@ function handleWebMessage(data) {
             fs.writeFileSync(FX_RESPONSE_FILE, '');
             
             const lines = response.trim().split('\n');
-            const sendData = { type: 'sendValues', trackIdx, sends: [] };
+            // Group sends by trackIdx
+            const sendsByTrack = {};
             
             lines.forEach(line => {
               const parts = line.split(',');
               if (parts[0] === 'S') {
-                // S,trackIdx,sendIdx,vol,pan
-                sendData.sends.push({
-                  sendIdx: parseInt(parts[2]),
-                  vol: parseFloat(parts[3]),
-                  pan: parseFloat(parts[4])
-                });
+                // S,trackIdx,sendIdx,vol
+                const trackIdx = parseInt(parts[1]);
+                const sendIdx = parseInt(parts[2]);
+                const vol = parseFloat(parts[3]);
+                
+                if (!sendsByTrack[trackIdx]) {
+                  sendsByTrack[trackIdx] = [];
+                }
+                sendsByTrack[trackIdx].push({ sendIdx, vol });
               }
             });
+            
+            // Send all data at once
+            const sendData = { type: 'allSendValues', tracks: sendsByTrack };
             
             clients.forEach(client => {
               if (client.readyState === WebSocket.OPEN) {
                 client.send(JSON.stringify(sendData));
               }
             });
-            console.log('← Send Values:', sendData.sends.length, 'sends for track', trackIdx);
+            console.log('← All Send Values:', Object.keys(sendsByTrack).length, 'tracks');
           }
         } catch (e) {}
         if (attempts > 20) clearInterval(pollInterval);
       }, 50);
     } catch (e) {
-      console.error('Send read error:', e.message);
+      console.error('Sends read error:', e.message);
     }
   } else if (data.type === 'fxRead') {
     // Request FX values from ReaScript

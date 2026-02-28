@@ -123,27 +123,31 @@ function ProcessCommands()
         end
       end
       
-      -- Handle send read request: S,trackIdx (read sends for a track)
-      local sTrack = line:match("^S,(%d+)")
-      if sTrack then
-        sTrack = tonumber(sTrack)
-        local track = GetTrackByIndex(sTrack)
-        if track then
-          local response = {}
-          local numSends = reaper.GetTrackNumSends(track, 0) -- 0 = sends
-          
-          for sendIdx = 0, numSends - 1 do
-            local sendVol = reaper.GetTrackSendInfo_Value(track, 0, sendIdx, "D_VOL")
-            local sendPan = reaper.GetTrackSendInfo_Value(track, 0, sendIdx, "D_PAN")
-            table.insert(response, string.format("S,%d,%d,%.6f,%.6f", sTrack, sendIdx, sendVol, sendPan))
+      -- Handle send read request: SENDS (read sends for ALL input tracks)
+      if line == "SENDS" then
+        local response = {}
+        local numTracks = reaper.CountTracks(0)
+        
+        for trackIdx = 1, numTracks do
+          local track = reaper.GetTrack(0, trackIdx - 1)
+          if track then
+            local _, trackName = reaper.GetTrackName(track)
+            -- Only process IN/ tracks (input tracks with sends)
+            if trackName:match("^IN/") then
+              local numSends = reaper.GetTrackNumSends(track, 0) -- 0 = sends
+              for sendIdx = 0, numSends - 1 do
+                local sendVol = reaper.GetTrackSendInfo_Value(track, 0, sendIdx, "D_VOL")
+                table.insert(response, string.format("S,%d,%d,%.6f", trackIdx, sendIdx, sendVol))
+              end
+            end
           end
-          
-          local rf = io.open(RESPONSE_FILE, "w")
-          if rf then
-            rf:write(table.concat(response, "\n") .. "\n")
-            rf:close()
-            reaper.ShowConsoleMsg("  Wrote SEND response for track " .. sTrack .. " (" .. numSends .. " sends)\n")
-          end
+        end
+        
+        local rf = io.open(RESPONSE_FILE, "w")
+        if rf then
+          rf:write(table.concat(response, "\n") .. "\n")
+          rf:close()
+          reaper.ShowConsoleMsg("  Wrote SENDS response for " .. #response .. " send entries\n")
         end
       end
       
