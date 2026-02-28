@@ -200,6 +200,53 @@ function handleWebMessage(data) {
     } catch (e) {
       console.error('FX read output error:', e.message);
     }
+  } else if (data.type === 'sendRead') {
+    // Request send values from ReaScript
+    const { trackIdx } = data;
+    const cmd = `S,${trackIdx}\n`;
+    
+    try {
+      fs.writeFileSync(FX_RESPONSE_FILE, '');
+      fs.appendFileSync(FX_CMD_FILE, cmd);
+      console.log('→ Send Read:', cmd.trim());
+      
+      let attempts = 0;
+      const pollInterval = setInterval(() => {
+        attempts++;
+        try {
+          const response = fs.readFileSync(FX_RESPONSE_FILE, 'utf8');
+          if (response && response.trim()) {
+            clearInterval(pollInterval);
+            fs.writeFileSync(FX_RESPONSE_FILE, '');
+            
+            const lines = response.trim().split('\n');
+            const sendData = { type: 'sendValues', trackIdx, sends: [] };
+            
+            lines.forEach(line => {
+              const parts = line.split(',');
+              if (parts[0] === 'S') {
+                // S,trackIdx,sendIdx,vol,pan
+                sendData.sends.push({
+                  sendIdx: parseInt(parts[2]),
+                  vol: parseFloat(parts[3]),
+                  pan: parseFloat(parts[4])
+                });
+              }
+            });
+            
+            clients.forEach(client => {
+              if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify(sendData));
+              }
+            });
+            console.log('← Send Values:', sendData.sends.length, 'sends for track', trackIdx);
+          }
+        } catch (e) {}
+        if (attempts > 20) clearInterval(pollInterval);
+      }, 50);
+    } catch (e) {
+      console.error('Send read error:', e.message);
+    }
   } else if (data.type === 'fxRead') {
     // Request FX values from ReaScript
     const { trackIdx, ws: clientWs } = data;

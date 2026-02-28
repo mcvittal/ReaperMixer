@@ -37,6 +37,8 @@ function connectOSC() {
         handleOSCResponse(data.address, data.args);
       } else if (data.type === 'fxValues') {
         handleFxValues(data);
+      } else if (data.type === 'sendValues') {
+        handleSendValues(data);
       }
     } catch(e) {}
   };
@@ -127,6 +129,31 @@ function requestFxValues(trackIdx) {
   if (oscWs && oscWs.readyState === WebSocket.OPEN) {
     oscWs.send(JSON.stringify({
       type: 'fxRead',
+      trackIdx: trackIdx
+    }));
+  }
+}
+
+function handleSendValues(data) {
+  const trackIdx = data.trackIdx;
+  const sends = data.sends || [];
+  
+  // Send 0 is the reverb send
+  const reverbSend = sends.find(s => s.sendIdx === 0);
+  if (reverbSend) {
+    const knob = document.querySelector(`.knob.reverb[data-track="${trackIdx}"]`);
+    if (knob) {
+      // Convert volume to knob value (sqrt for perceptual scaling)
+      const knobVal = Math.sqrt(reverbSend.vol);
+      updateKnob(knob, Math.min(1, knobVal));
+    }
+  }
+}
+
+function requestSendValues(trackIdx) {
+  if (oscWs && oscWs.readyState === WebSocket.OPEN) {
+    oscWs.send(JSON.stringify({
+      type: 'sendRead',
       trackIdx: trackIdx
     }));
   }
@@ -3124,12 +3151,13 @@ function performReset(type) {
   });
 }
 
-// Request reverb send levels for all input tracks  
+// Request reverb send levels for all input tracks via WebSocket  
 function requestReverbLevels() {
-  inputTracks.forEach(t => {
-    // Request send info for each track - Reaper web API format
-    wwr_req(`GET/TRACK/${t.idx}/SEND`);
-  });
+  if (oscWs && oscWs.readyState === WebSocket.OPEN) {
+    inputTracks.forEach(t => {
+      requestSendValues(t.idx);
+    });
+  }
 }
 
 // Start polling
@@ -3138,10 +3166,10 @@ wwr_start();
 
 // Poll for reverb levels periodically after tracks are loaded
 setInterval(() => {
-  if (inputTracks.length > 0) {
+  if (inputTracks.length > 0 && oscConnected) {
     requestReverbLevels();
   }
-}, 500);
+}, 1000);
 </script>
 </body>
 </html>

@@ -123,6 +123,30 @@ function ProcessCommands()
         end
       end
       
+      -- Handle send read request: S,trackIdx (read sends for a track)
+      local sTrack = line:match("^S,(%d+)")
+      if sTrack then
+        sTrack = tonumber(sTrack)
+        local track = GetTrackByIndex(sTrack)
+        if track then
+          local response = {}
+          local numSends = reaper.GetTrackNumSends(track, 0) -- 0 = sends
+          
+          for sendIdx = 0, numSends - 1 do
+            local sendVol = reaper.GetTrackSendInfo_Value(track, 0, sendIdx, "D_VOL")
+            local sendPan = reaper.GetTrackSendInfo_Value(track, 0, sendIdx, "D_PAN")
+            table.insert(response, string.format("S,%d,%d,%.6f,%.6f", sTrack, sendIdx, sendVol, sendPan))
+          end
+          
+          local rf = io.open(RESPONSE_FILE, "w")
+          if rf then
+            rf:write(table.concat(response, "\n") .. "\n")
+            rf:close()
+            reaper.ShowConsoleMsg("  Wrote SEND response for track " .. sTrack .. " (" .. numSends .. " sends)\n")
+          end
+        end
+      end
+      
       -- Handle read request: R,trackIdx (read all FX params)
       local rTrack = line:match("^R,(%d+)")
       if rTrack then
