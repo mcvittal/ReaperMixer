@@ -1502,6 +1502,211 @@ body {
   border-radius: 3px;
 }
 
+/* VCA Assign Buttons */
+.vca-assign-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: 6px;
+  justify-content: center;
+}
+
+.vca-assign-btn {
+  width: 20px;
+  height: 18px;
+  border: 1px solid #444;
+  border-radius: 3px;
+  background: #2a2a2a;
+  color: #666;
+  font-size: 8px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  line-height: 16px;
+  text-align: center;
+  transition: all 0.1s ease;
+}
+
+.vca-assign-btn:active {
+  transform: scale(0.95);
+}
+
+.vca-assign-btn.active {
+  color: #fff;
+  border-width: 2px;
+}
+
+.vca-assign-btn[data-vca="1"] { border-color: #ff453a; }
+.vca-assign-btn[data-vca="1"].active { background: #ff453a; }
+.vca-assign-btn[data-vca="2"] { border-color: #ff9500; }
+.vca-assign-btn[data-vca="2"].active { background: #ff9500; }
+.vca-assign-btn[data-vca="3"] { border-color: #ffd60a; color: #888; }
+.vca-assign-btn[data-vca="3"].active { background: #ffd60a; color: #000; }
+.vca-assign-btn[data-vca="4"] { border-color: #30d158; }
+.vca-assign-btn[data-vca="4"].active { background: #30d158; }
+.vca-assign-btn[data-vca="5"] { border-color: #5ac8fa; }
+.vca-assign-btn[data-vca="5"].active { background: #5ac8fa; color: #000; }
+.vca-assign-btn[data-vca="6"] { border-color: #4a9eff; }
+.vca-assign-btn[data-vca="6"].active { background: #4a9eff; }
+.vca-assign-btn[data-vca="7"] { border-color: #bf5af2; }
+.vca-assign-btn[data-vca="7"].active { background: #bf5af2; }
+.vca-assign-btn[data-vca="8"] { border-color: #ff2d55; }
+.vca-assign-btn[data-vca="8"].active { background: #ff2d55; }
+
+/* VCA Faders Section */
+.vca-faders-section {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+  border-top: 2px solid #333;
+  padding: 8px 12px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0));
+  display: none;
+  z-index: 60;
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+}
+
+.vca-faders-section.show {
+  display: block;
+}
+
+.vca-faders-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.vca-faders-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.vca-faders-close {
+  background: #333;
+  border: none;
+  border-radius: 4px;
+  color: #888;
+  font-size: 14px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.vca-faders-container {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.vca-fader {
+  flex-shrink: 0;
+  width: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #222;
+  border-radius: 8px;
+  padding: 8px 6px;
+}
+
+.vca-fader-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.vca-fader[data-vca="1"] .vca-fader-label { background: #ff453a; }
+.vca-fader[data-vca="2"] .vca-fader-label { background: #ff9500; }
+.vca-fader[data-vca="3"] .vca-fader-label { background: #ffd60a; color: #000; }
+.vca-fader[data-vca="4"] .vca-fader-label { background: #30d158; }
+.vca-fader[data-vca="5"] .vca-fader-label { background: #5ac8fa; color: #000; }
+.vca-fader[data-vca="6"] .vca-fader-label { background: #4a9eff; }
+.vca-fader[data-vca="7"] .vca-fader-label { background: #bf5af2; }
+.vca-fader[data-vca="8"] .vca-fader-label { background: #ff2d55; }
+
+.vca-fader-track {
+  width: 100%;
+  height: 100px;
+  background: #111;
+  border-radius: 6px;
+  position: relative;
+  margin-bottom: 6px;
+}
+
+.vca-fader-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, #444 0%, #666 100%);
+  border-radius: 0 0 6px 6px;
+}
+
+.vca-fader-handle {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  height: 20px;
+  background: linear-gradient(180deg, #777 0%, #555 50%, #444 100%);
+  border-radius: 4px;
+  border: 1px solid #888;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.vca-fader-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 60%;
+  height: 2px;
+  background: #aaa;
+  border-radius: 1px;
+}
+
+.vca-fader-db {
+  font-size: 10px;
+  color: #888;
+  font-variant-numeric: tabular-nums;
+}
+
+.vca-fader.inactive {
+  opacity: 0.4;
+}
+
+.vca-fader.inactive .vca-fader-label {
+  background: #444 !important;
+  color: #666 !important;
+}
+
+/* VCA Toggle Button in Header */
+.header-btn.vca-btn {
+  background: linear-gradient(135deg, #4a9eff 0%, #bf5af2 100%);
+  color: #fff;
+  border: none;
+}
+
+.header-btn.vca-btn.active {
+  box-shadow: 0 0 12px rgba(74, 158, 255, 0.5);
+}
+
+/* Adjust mixer container when VCA panel is open */
+body.vca-panel-open #mixer-container {
+  padding-bottom: 180px;
+}
+
 /* BG Music Pinned Channel */
 .bg-music-pinned {
   position: fixed;
@@ -1594,6 +1799,7 @@ body.has-bg-music #mixer-container {
     <button class="header-btn" id="monPflBtn" onclick="toggleGlobalMonPfl()" title="All Monitor Sends Pre-Fader">MON POST</button>
     <button class="header-btn fx-master" id="globalFxBtn" onclick="toggleGlobalFx()" title="Global FX On/Off">FX</button>
     <button class="header-btn reset-btn" onclick="openResetMenu()" title="Reset Options">↺</button>
+    <button class="header-btn vca-btn" id="vcaToggleBtn" onclick="toggleVcaPanel()" title="VCA Faders">VCA</button>
   </div>
   <div class="layer-tabs">
     <button class="layer-tab active" data-layer="foh">FOH</button>
@@ -1617,6 +1823,15 @@ body.has-bg-music #mixer-container {
 </div>
 
 <div id="mixer-container"></div>
+
+<!-- VCA Faders Section -->
+<div class="vca-faders-section" id="vca-faders-section">
+  <div class="vca-faders-header">
+    <span class="vca-faders-title">VCA Masters</span>
+    <button class="vca-faders-close" onclick="toggleVcaPanel()">×</button>
+  </div>
+  <div class="vca-faders-container" id="vca-faders-container"></div>
+</div>
 
 <!-- Popup Fader for touch-friendly knob adjustment -->
 <div class="popup-fader-overlay" id="popup-fader-overlay" onclick="closePopupFader(event)">
@@ -1683,6 +1898,34 @@ let linkedGroups = [];
 
 // Discovered monitor prefixes (for dynamic tabs)
 let monitorPrefixes = [];
+
+// VCA System - soft VCAs in the UI
+const VCA_COUNT = 8;
+const VCA_COLORS = [
+  '#ff453a', // VCA 1: Red
+  '#ff9500', // VCA 2: Orange
+  '#ffd60a', // VCA 3: Yellow
+  '#30d158', // VCA 4: Green
+  '#5ac8fa', // VCA 5: Cyan
+  '#4a9eff', // VCA 6: Blue
+  '#bf5af2', // VCA 7: Purple
+  '#ff2d55'  // VCA 8: Pink
+];
+let vcaAssignments = {}; // { vcaNum: [trackIdx1, trackIdx2, ...] }
+let vcaValues = {};      // { vcaNum: 0-1 value (0.5 = unity) }
+let trackBaseVolumes = {}; // { trackIdx: volume } - stores volume before VCA offset
+
+// Initialize VCA state
+for (let i = 1; i <= VCA_COUNT; i++) {
+  vcaAssignments[i] = [];
+  vcaValues[i] = 0.5; // Unity (0 dB offset)
+}
+
+// Load VCA assignments from localStorage
+try {
+  const savedVca = localStorage.getItem('mixerVcaAssignments');
+  if (savedVca) vcaAssignments = JSON.parse(savedVca);
+} catch(e) {}
 
 // Custom track names (stored locally, keyed by input number)
 let customNames = {};
@@ -2011,6 +2254,9 @@ function buildChannel(idx, name, color, type = "input", inputNum = null) {
     <div class="input-meter-bridge" data-input-meter="${idx}">
       <div class="input-meter-fill level-green"></div>
       <span class="input-meter-label">IN</span>
+    </div>
+    <div class="vca-assign-row" data-track="${idx}">
+      ${[1,2,3,4,5,6,7,8].map(v => `<button class="vca-assign-btn ${isVcaAssigned(idx, v) ? 'active' : ''}" data-vca="${v}" data-track="${idx}" onclick="toggleVcaAssign(${idx}, ${v})">${v}</button>`).join('')}
     </div>
     <div class="link-btn ${linked ? 'active' : ''}" onclick="toggleLink(${idx})" title="Stereo Link">🔗</div>
     <div class="sends-section">
@@ -4053,6 +4299,199 @@ setInterval(() => {
     });
   }
 }, 2000);
+
+// ===== VCA System Functions =====
+
+// Check if a track is assigned to a VCA
+function isVcaAssigned(trackIdx, vcaNum) {
+  return vcaAssignments[vcaNum]?.includes(trackIdx) || false;
+}
+
+// Toggle VCA assignment for a track
+function toggleVcaAssign(trackIdx, vcaNum) {
+  const arr = vcaAssignments[vcaNum] || [];
+  const idx = arr.indexOf(trackIdx);
+  
+  if (idx >= 0) {
+    // Remove assignment
+    arr.splice(idx, 1);
+  } else {
+    // Add assignment - store current volume as base
+    arr.push(trackIdx);
+    const track = tracks[trackIdx];
+    if (track) {
+      trackBaseVolumes[trackIdx] = track.vol || 1;
+    }
+  }
+  
+  vcaAssignments[vcaNum] = arr;
+  
+  // Save to localStorage
+  localStorage.setItem('mixerVcaAssignments', JSON.stringify(vcaAssignments));
+  
+  // Update button state
+  const btn = document.querySelector(`.vca-assign-btn[data-track="${trackIdx}"][data-vca="${vcaNum}"]`);
+  if (btn) btn.classList.toggle('active', idx < 0);
+  
+  // Also toggle linked partner
+  const partner = getLinkedPartner(trackIdx);
+  if (partner) {
+    const partnerArr = vcaAssignments[vcaNum];
+    const partnerIdx = partnerArr.indexOf(partner);
+    if (idx < 0 && partnerIdx < 0) {
+      partnerArr.push(partner);
+      const pTrack = tracks[partner];
+      if (pTrack) trackBaseVolumes[partner] = pTrack.vol || 1;
+    } else if (idx >= 0 && partnerIdx >= 0) {
+      partnerArr.splice(partnerIdx, 1);
+    }
+    const partnerBtn = document.querySelector(`.vca-assign-btn[data-track="${partner}"][data-vca="${vcaNum}"]`);
+    if (partnerBtn) partnerBtn.classList.toggle('active', idx < 0);
+  }
+  
+  // Update VCA fader UI
+  updateVcaFaderStates();
+}
+
+// Toggle VCA panel visibility
+function toggleVcaPanel() {
+  const section = document.getElementById('vca-faders-section');
+  const btn = document.getElementById('vcaToggleBtn');
+  const isShown = section.classList.toggle('show');
+  btn.classList.toggle('active', isShown);
+  document.body.classList.toggle('vca-panel-open', isShown);
+  
+  if (isShown) {
+    buildVcaFaders();
+  }
+}
+
+// Build VCA faders UI
+function buildVcaFaders() {
+  const container = document.getElementById('vca-faders-container');
+  container.innerHTML = '';
+  
+  for (let i = 1; i <= VCA_COUNT; i++) {
+    const hasAssignments = vcaAssignments[i]?.length > 0;
+    const value = vcaValues[i] || 0.5;
+    
+    const fader = document.createElement('div');
+    fader.className = `vca-fader ${hasAssignments ? '' : 'inactive'}`;
+    fader.dataset.vca = i;
+    
+    const db = ((value - 0.5) * 24).toFixed(1); // ±12 dB range
+    const dbText = value >= 0.5 ? `+${db}` : db;
+    
+    fader.innerHTML = `
+      <div class="vca-fader-label">VCA ${i}</div>
+      <div class="vca-fader-track" data-vca-track="${i}">
+        <div class="vca-fader-fill" style="height: ${value * 100}%"></div>
+        <div class="vca-fader-handle" data-vca-handle="${i}" style="bottom: calc(${value * 100}% - 10px)"></div>
+      </div>
+      <div class="vca-fader-db" data-vca-db="${i}">${value === 0.5 ? '0.0' : dbText} dB</div>
+    `;
+    
+    container.appendChild(fader);
+    
+    // Setup drag for this VCA fader
+    setupVcaFaderDrag(fader, i);
+  }
+}
+
+// Setup VCA fader drag
+function setupVcaFaderDrag(faderEl, vcaNum) {
+  const track = faderEl.querySelector('.vca-fader-track');
+  const handle = faderEl.querySelector('.vca-fader-handle');
+  const fill = faderEl.querySelector('.vca-fader-fill');
+  const dbDisplay = faderEl.querySelector('.vca-fader-db');
+  
+  function getValueFromY(y) {
+    const rect = track.getBoundingClientRect();
+    const relY = rect.bottom - y;
+    return Math.max(0, Math.min(1, relY / rect.height));
+  }
+  
+  function update(y) {
+    const value = getValueFromY(y);
+    vcaValues[vcaNum] = value;
+    
+    // Update UI
+    fill.style.height = (value * 100) + '%';
+    handle.style.bottom = `calc(${value * 100}% - 10px)`;
+    
+    const db = ((value - 0.5) * 24).toFixed(1);
+    const dbText = value >= 0.5 ? (value === 0.5 ? '0.0' : `+${db}`) : db;
+    dbDisplay.textContent = dbText + ' dB';
+    
+    // Apply VCA offset to all assigned tracks
+    applyVcaOffset(vcaNum, value);
+  }
+  
+  function start(e) {
+    e.preventDefault();
+    update(e.touches ? e.touches[0].clientY : e.clientY);
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', stop);
+    document.addEventListener('touchmove', move, { passive: false });
+    document.addEventListener('touchend', stop);
+  }
+  
+  function move(e) {
+    e.preventDefault();
+    update(e.touches ? e.touches[0].clientY : e.clientY);
+  }
+  
+  function stop() {
+    document.removeEventListener('mousemove', move);
+    document.removeEventListener('mouseup', stop);
+    document.removeEventListener('touchmove', move);
+    document.removeEventListener('touchend', stop);
+  }
+  
+  track.addEventListener('mousedown', start);
+  track.addEventListener('touchstart', start, { passive: false });
+}
+
+// Apply VCA offset to assigned tracks
+function applyVcaOffset(vcaNum, vcaValue) {
+  const assignedTracks = vcaAssignments[vcaNum] || [];
+  
+  // VCA value 0.5 = unity (0 dB offset)
+  // VCA value 0 = -12 dB, VCA value 1 = +12 dB
+  const vcaDb = (vcaValue - 0.5) * 24;
+  const vcaMultiplier = dbToVol(vcaDb);
+  
+  assignedTracks.forEach(trackIdx => {
+    // Get base volume (volume before VCA)
+    let baseVol = trackBaseVolumes[trackIdx];
+    if (baseVol === undefined) {
+      const track = tracks[trackIdx];
+      baseVol = track?.vol || 1;
+      trackBaseVolumes[trackIdx] = baseVol;
+    }
+    
+    // Calculate new volume = base * VCA multiplier
+    const newVol = Math.max(0, Math.min(4, baseVol * vcaMultiplier)); // Clamp to reasonable range
+    
+    // Send to Reaper
+    wwr_req(`SET/TRACK/${trackIdx}/VOL/${newVol.toFixed(8)}`);
+  });
+}
+
+// Update VCA fader states (active/inactive based on assignments)
+function updateVcaFaderStates() {
+  for (let i = 1; i <= VCA_COUNT; i++) {
+    const fader = document.querySelector(`.vca-fader[data-vca="${i}"]`);
+    if (fader) {
+      const hasAssignments = vcaAssignments[i]?.length > 0;
+      fader.classList.toggle('inactive', !hasAssignments);
+    }
+  }
+}
+
+// When track volumes change, update base volumes for VCA calculation
+// This needs to detect when user moves individual fader vs VCA
+// For now, we store base when first assigned
 </script>
 </body>
 </html>
