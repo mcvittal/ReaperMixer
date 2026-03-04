@@ -1691,6 +1691,34 @@ body {
   color: #666 !important;
 }
 
+/* VCA Mute Button */
+.vca-mute-btn {
+  background: #333;
+  border: none;
+  border-radius: 4px;
+  color: #888;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 6px 8px;
+  margin-top: 6px;
+  cursor: pointer;
+  width: 100%;
+}
+
+.vca-mute-btn:active {
+  background: #444;
+}
+
+.vca-mute-btn.active {
+  background: #ff453a;
+  color: #fff;
+}
+
+.vca-fader.inactive .vca-mute-btn {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 /* VCA Toggle Button in Header */
 .header-btn.vca-btn {
   background: linear-gradient(135deg, #4a9eff 0%, #bf5af2 100%);
@@ -1702,9 +1730,66 @@ body {
   box-shadow: 0 0 12px rgba(74, 158, 255, 0.5);
 }
 
+.header-btn.show-hidden-btn {
+  color: #888;
+  border-color: #555;
+}
+
+.header-btn.show-hidden-btn.active {
+  color: #ff9500;
+  border-color: #ff9500;
+  background: #3a2a1a;
+}
+
+.header-btn.show-hidden-btn .hidden-count {
+  background: #ff9500;
+  color: #000;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  margin-left: 4px;
+}
+
 /* Adjust mixer container when VCA panel is open */
 body.vca-panel-open #mixer-container {
   padding-bottom: 180px;
+}
+
+/* Hide Track Button */
+.hide-btn {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #666;
+  font-size: 9px;
+  padding: 3px 6px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.hide-btn:active {
+  background: #444;
+}
+
+/* Hidden Channel Styling */
+.channel.hidden-channel {
+  opacity: 0.4;
+  border-color: #ff9500;
+  border-style: dashed;
+}
+
+.channel.hidden-channel .colorbar {
+  background: #555 !important;
+}
+
+.channel.hidden-channel .track-name {
+  text-decoration: line-through;
+  color: #666;
+}
+
+/* Hide channels when not showing hidden */
+body:not(.show-hidden-channels) .channel.hidden-channel {
+  display: none;
 }
 
 /* BG Music Pinned Channel */
@@ -1800,6 +1885,7 @@ body.has-bg-music #mixer-container {
     <button class="header-btn fx-master" id="globalFxBtn" onclick="toggleGlobalFx()" title="Global FX On/Off">FX</button>
     <button class="header-btn reset-btn" onclick="openResetMenu()" title="Reset Options">↺</button>
     <button class="header-btn vca-btn" id="vcaToggleBtn" onclick="toggleVcaPanel()" title="VCA Faders">VCA</button>
+    <button class="header-btn show-hidden-btn" id="showHiddenBtn" onclick="toggleShowHidden()" title="Show/Hide Hidden Channels">👁 Hidden</button>
   </div>
   <div class="layer-tabs">
     <button class="layer-tab active" data-layer="foh">FOH</button>
@@ -1817,6 +1903,7 @@ body.has-bg-music #mixer-container {
     <button class="reset-option" onclick="confirmReset('eq')">📊 Reset All EQs to Flat</button>
     <button class="reset-option" onclick="confirmReset('gates')">🚧 Reset All Gates to Default</button>
     <button class="reset-option" onclick="confirmReset('comps')">🔊 Reset All Compressors to Default</button>
+    <button class="reset-option" onclick="confirmReset('hidden')">👁 Unhide All Channels</button>
     <button class="reset-option reset-all" onclick="confirmReset('all')">⚠️ Reset Everything</button>
     <button class="reset-cancel" onclick="closeResetMenu()">Cancel</button>
   </div>
@@ -1898,6 +1985,20 @@ let linkedGroups = [];
 
 // Discovered monitor prefixes (for dynamic tabs)
 let monitorPrefixes = [];
+
+// Hidden tracks state
+let hiddenTracks = {}; // { trackIdx: true }
+let showHiddenChannels = false;
+let hiddenMuteState = {}; // Store previous mute state when hiding { trackIdx: wasMuted }
+
+// Load hidden tracks from localStorage
+try {
+  const savedHidden = localStorage.getItem('mixerHiddenTracks');
+  if (savedHidden) hiddenTracks = JSON.parse(savedHidden);
+} catch(e) {}
+
+// VCA mute state
+let vcaMuteState = {}; // { vcaNum: true/false }
 
 // VCA System - soft VCAs in the UI
 const VCA_COUNT = 8;
@@ -2259,6 +2360,7 @@ function buildChannel(idx, name, color, type = "input", inputNum = null) {
       ${[1,2,3,4,5,6,7,8].map(v => `<button class="vca-assign-btn ${isVcaAssigned(idx, v) ? 'active' : ''}" data-vca="${v}" data-track="${idx}" onclick="toggleVcaAssign(${idx}, ${v})">${v}</button>`).join('')}
     </div>
     <div class="link-btn ${linked ? 'active' : ''}" onclick="toggleLink(${idx})" title="Stereo Link">🔗</div>
+    <button class="hide-btn" onclick="toggleHideTrack(${idx})" title="Hide Channel">👁</button>
     <div class="sends-section">
       <div class="send-row">
         <span class="send-label">RV</span>
@@ -3364,6 +3466,10 @@ function rebuildMixer() {
   
   tracksToShow.forEach(t => {
     const channel = buildChannel(t.idx, t.name, t.color, t.type, t.inputNum);
+    // Apply hidden state
+    if (hiddenTracks[t.idx]) {
+      channel.classList.add('hidden-channel');
+    }
     container.appendChild(channel);
   });
   
@@ -3990,6 +4096,7 @@ function confirmReset(type) {
     'eq': 'Reset all EQs to flat?',
     'gates': 'Reset all gates to default?',
     'comps': 'Reset all compressors to default?',
+    'hidden': 'Unhide all hidden channels?',
     'all': 'Reset EVERYTHING to defaults?'
   };
   
@@ -4000,6 +4107,29 @@ function confirmReset(type) {
 }
 
 function performReset(type) {
+  // Handle hidden channels reset
+  if (type === 'hidden' || type === 'all') {
+    // Unhide all channels and restore their mute state
+    Object.keys(hiddenTracks).forEach(trackIdx => {
+      const idx = parseInt(trackIdx);
+      // Unmute if it wasn't muted before hiding
+      if (!hiddenMuteState[idx]) {
+        wwr_req(`SET/TRACK/${idx}/MUTE/0`);
+      }
+    });
+    hiddenTracks = {};
+    hiddenMuteState = {};
+    localStorage.setItem('mixerHiddenTracks', JSON.stringify(hiddenTracks));
+    
+    // Update UI
+    document.querySelectorAll('.channel.hidden-channel').forEach(ch => {
+      ch.classList.remove('hidden-channel');
+    });
+    updateHiddenCount();
+    
+    if (type === 'hidden') return; // Only unhide, don't continue to other resets
+  }
+  
   const unityVol = dbToVol(0); // 0 dB = unity
   
   // Collect ALL tracks to reset: inputs, monitor buses, reverb, output tracks
@@ -4389,6 +4519,7 @@ function buildVcaFaders() {
         <div class="vca-fader-handle" data-vca-handle="${i}" style="bottom: calc(${value * 100}% - 10px)"></div>
       </div>
       <div class="vca-fader-db" data-vca-db="${i}">${value === 0.5 ? '0.0' : dbText} dB</div>
+      <button class="vca-mute-btn ${vcaMuteState[i] ? 'active' : ''}" data-vca-mute="${i}" onclick="toggleVcaMute(${i})">MUTE</button>
     `;
     
     container.appendChild(fader);
@@ -4492,6 +4623,112 @@ function updateVcaFaderStates() {
 // When track volumes change, update base volumes for VCA calculation
 // This needs to detect when user moves individual fader vs VCA
 // For now, we store base when first assigned
+
+// ===== Hidden Tracks Functions =====
+
+// Toggle hide state for a track
+function toggleHideTrack(trackIdx) {
+  const channel = document.querySelector(`.channel[data-track-idx="${trackIdx}"]`);
+  if (!channel) return;
+  
+  const isCurrentlyHidden = hiddenTracks[trackIdx];
+  
+  if (isCurrentlyHidden) {
+    // Unhide the track
+    delete hiddenTracks[trackIdx];
+    channel.classList.remove('hidden-channel');
+    
+    // Restore previous mute state
+    if (!hiddenMuteState[trackIdx]) {
+      wwr_req(`SET/TRACK/${trackIdx}/MUTE/0`);
+    }
+    delete hiddenMuteState[trackIdx];
+  } else {
+    // Hide the track
+    hiddenTracks[trackIdx] = true;
+    channel.classList.add('hidden-channel');
+    
+    // Store current mute state and mute the track
+    const muteBtn = channel.querySelector('.btn-mute');
+    hiddenMuteState[trackIdx] = muteBtn?.classList.contains('active') || false;
+    wwr_req(`SET/TRACK/${trackIdx}/MUTE/1`);
+  }
+  
+  // Also handle linked partner
+  const partner = getLinkedPartner(trackIdx);
+  if (partner) {
+    const partnerChannel = document.querySelector(`.channel[data-track-idx="${partner}"]`);
+    if (partnerChannel) {
+      if (isCurrentlyHidden) {
+        delete hiddenTracks[partner];
+        partnerChannel.classList.remove('hidden-channel');
+        if (!hiddenMuteState[partner]) {
+          wwr_req(`SET/TRACK/${partner}/MUTE/0`);
+        }
+        delete hiddenMuteState[partner];
+      } else {
+        hiddenTracks[partner] = true;
+        partnerChannel.classList.add('hidden-channel');
+        const partnerMuteBtn = partnerChannel.querySelector('.btn-mute');
+        hiddenMuteState[partner] = partnerMuteBtn?.classList.contains('active') || false;
+        wwr_req(`SET/TRACK/${partner}/MUTE/1`);
+      }
+    }
+  }
+  
+  // Save to localStorage
+  localStorage.setItem('mixerHiddenTracks', JSON.stringify(hiddenTracks));
+  
+  // Update hidden count badge
+  updateHiddenCount();
+}
+
+// Toggle show/hide hidden channels
+function toggleShowHidden() {
+  showHiddenChannels = !showHiddenChannels;
+  document.body.classList.toggle('show-hidden-channels', showHiddenChannels);
+  
+  const btn = document.getElementById('showHiddenBtn');
+  btn.classList.toggle('active', showHiddenChannels);
+}
+
+// Update the hidden count badge on the button
+function updateHiddenCount() {
+  const count = Object.keys(hiddenTracks).length;
+  const btn = document.getElementById('showHiddenBtn');
+  
+  if (count > 0) {
+    btn.innerHTML = `👁 Hidden <span class="hidden-count">${count}</span>`;
+  } else {
+    btn.innerHTML = '👁 Hidden';
+  }
+}
+
+// Initialize hidden count on load
+setTimeout(updateHiddenCount, 500);
+
+// ===== VCA Mute Functions =====
+
+// Toggle mute for all tracks assigned to a VCA
+function toggleVcaMute(vcaNum) {
+  const assignedTracks = vcaAssignments[vcaNum] || [];
+  if (assignedTracks.length === 0) return;
+  
+  // Toggle mute state
+  vcaMuteState[vcaNum] = !vcaMuteState[vcaNum];
+  const isMuted = vcaMuteState[vcaNum];
+  
+  // Update button UI
+  const btn = document.querySelector(`.vca-mute-btn[data-vca-mute="${vcaNum}"]`);
+  if (btn) {
+    btn.classList.toggle('active', isMuted);
+  }
+  
+  // Mute/unmute all assigned tracks
+  assignedTracks.forEach(trackIdx => {
+    wwr_req(`SET/TRACK/${trackIdx}/MUTE/${isMuted ? 1 : 0}`);
+  });
+}
 </script>
 </body>
 </html>
